@@ -436,7 +436,7 @@ router.post("/appartment/check", authMiddleware, async (req, res) => {
           notification_type: "report",
         });
         break;
-      case "yellow":
+      case "red":
         await NotificationModel.create({
           appartmentId,
           userId: findAppartment.studentId,
