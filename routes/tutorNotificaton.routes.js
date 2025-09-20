@@ -34,7 +34,7 @@ router.get("/my-messages", authMiddleware, async (req, res) => {
     if (!findTutor) {
       return res
         .status(400)
-        .json({ status: "error", message: "bunday tutor topilmadi" });
+        .json({ status: "error", message: "Bunday tutor topilmadi" });
     }
 
     const findMessages = await tutorNotificationModel.find({ tutorId: userId });
@@ -60,7 +60,7 @@ router.post("/read-all", async (req, res) => {
     if (!findTutor) {
       return res
         .status(400)
-        .json({ status: "error", message: "bunday tutor topilmadi" });
+        .json({ status: "error", message: "Bunday tutor topilmadi" });
     }
 
     await tutorNotificationModel.updateMany(tutorId, { isRead: true });
@@ -79,7 +79,7 @@ router.delete("/delete/:messageId", async (req, res) => {
     if (!findMessage) {
       return res
         .status(400)
-        .json({ status: "error", message: "bunday message topilmadi" });
+        .json({ status: "error", message: "Bunday message topilmadi" });
     }
     await tutorNotificationModel.findByIdAndDelete(messageId);
 

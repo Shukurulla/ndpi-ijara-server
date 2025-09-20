@@ -32,8 +32,6 @@ router.post(
         });
       }
 
-      console.log(req.files);
-
       const findStudent = await StudentModel.findById(studentId);
       if (!findStudent) {
         return res
@@ -386,8 +384,6 @@ router.post("/appartment/check", authMiddleware, async (req, res) => {
       appartmentId,
     });
 
-    console.log(findYellowNotification);
-
     if (findYellowNotification) {
       return res.status(400).json({
         status: "error",
@@ -421,13 +417,38 @@ router.post("/appartment/check", authMiddleware, async (req, res) => {
       notification_type: "report",
     });
 
-    await NotificationModel.create({
-      appartmentId,
-      userId: findAppartment.studentId,
-      status: "green",
-      message: "Ijara malumotlari tekshirildi",
-      notification_type: "report",
-    });
+    switch (status) {
+      case "green":
+        await NotificationModel.create({
+          appartmentId,
+          userId: findAppartment.studentId,
+          status: "green",
+          message: "Siz yashil zonaga kirdingiz",
+          notification_type: "report",
+        });
+        break;
+      case "yellow":
+        await NotificationModel.create({
+          appartmentId,
+          userId: findAppartment.studentId,
+          status: "green",
+          message: "Siz sariq zonaga kirdingiz ",
+          notification_type: "report",
+        });
+        break;
+      case "yellow":
+        await NotificationModel.create({
+          appartmentId,
+          userId: findAppartment.studentId,
+          status: "green",
+          message: "Siz qizil zonaga kirdingiz ",
+          notification_type: "report",
+        });
+        break;
+
+      default:
+        break;
+    }
 
     const checkedAppartment = await AppartmentModel.findById(appartmentId);
     res.status(200).json({ status: "success", data: checkedAppartment });
