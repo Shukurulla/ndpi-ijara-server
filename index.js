@@ -22,9 +22,13 @@ import ChatRouter from "./routes/chat.routes.js";
 import tutorModel from "./models/tutor.model.js";
 import chatModel from "./models/chat.model.js";
 import StudentModel from "./models/student.model.js";
+import axios from "axios";
+import { autoRefreshStudentData } from "./utils/refreshData.js";
 import PermissionRouter from "./routes/permission.routes.js";
-import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
-import admin from "firebase-admin";
+import permissionModel from "./models/permission.model.js";
+import { fixExistingStudentData } from "./utils/fixStudentData.js";
+// import migrateStudents from "./utils/migration.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -32,10 +36,6 @@ config();
 
 const app = express();
 const server = createServer(app);
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
 
 // Socket.io sozlamalari
 const io = new Server(server, {
@@ -110,6 +110,7 @@ io.on("connection", (socket) => {
 
   socket.on("joinGroupRoom", ({ studentId, groupId }) => {
     if (!groupId || !studentId) return;
+
     const roomName = `group_${groupId}`;
     socket.join(roomName);
     console.log(`Student ${studentId} ${roomName} ga qo'shildi`);
@@ -118,10 +119,15 @@ io.on("connection", (socket) => {
   socket.on("sendMessage", async ({ tutorId, message, groupId }) => {
     try {
       console.log({ tutorId, message, groupId });
+
       const tutor = await tutorModel.findById(tutorId);
+      console.log("tutor:", tutor);
+
       const findGroup = tutor.group.find((c) => c.code == groupId.toString());
+      console.log("group:", findGroup);
 
       if (!findGroup) {
+        // ❌ socket handler ichida res ishlatib bo‘lmaydi
         socket.emit("errorMessage", {
           status: "error",
           message: "Sizda bunday guruh mavjud emas",
@@ -129,7 +135,11 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const groupData = { id: findGroup.code, name: findGroup.name };
+      // 🔑 id maydonini code bilan to‘ldiramiz
+      const groupData = {
+        id: findGroup.code,
+        name: findGroup.name,
+      };
 
       const newMessage = await chatModel.create({
         tutorId,
@@ -137,7 +147,7 @@ io.on("connection", (socket) => {
         groups: [groupData],
       });
 
-      // Socket orqali group ga yuborish
+      // Faqat shu group xonasiga yuborish
       socket.to(`group_${groupData.id}`).emit("receiveMessage", {
         tutorId,
         message,
@@ -145,24 +155,9 @@ io.on("connection", (socket) => {
         createdAt: newMessage.createdAt,
       });
 
-      // 🔔 FCM orqali notification yuborish
-      const payload = {
-        notification: {
-          title: `Yangi xabar ${groupData.name}`,
-          body: message,
-        },
-        data: {
-          tutorId: tutorId.toString(),
-          groupId: groupData.id.toString(),
-          message,
-        },
-        topic: `group_${groupData.id}`, // Android tarafida shu topicga subscribe qilamiz
-      };
-
-      await admin.messaging().send(payload);
-      console.log("✅ FCM yuborildi:", payload);
+      console.log("message:", newMessage);
     } catch (error) {
-      console.error("❌ Xatolik sendMessage da:", error);
+      console.error("Xatolik sendMessage da:", error);
     }
   });
 });
