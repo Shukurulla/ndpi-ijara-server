@@ -894,13 +894,8 @@ router.get("/tutor/my-groups", authMiddleware, async (req, res) => {
         // Studentlar idlarini arrayga olish
         const studentIds = students.map((s) => s._id.toString());
 
-        // Appartment topilmagan studentlarni hisoblash
-        const unexistStudents = await AppartmentModel.find({
-          studentId: { $in: studentIds },
-        });
-
         // Total students = studentlar soni - appartment topilganlar soni
-        const totalStudents = students.length - unexistStudents.length;
+        const totalStudents = students.length;
 
         return {
           name: grp.name,
