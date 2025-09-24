@@ -1,4 +1,4 @@
-// index.js (yangilangan qism - faqat import va route qo'shish)
+// index.js - Socket.IO + Firebase integratsiyasi
 import express from "express";
 import { config } from "dotenv";
 import { createServer } from "http";
@@ -12,7 +12,7 @@ import FilledRouter from "./routes/detail.routes.js";
 import NotificationRouter from "./routes/notification.routes.js";
 import AdsRouter from "./routes/ads.routes.js";
 import TutorNotificationRouter from "./routes/tutorNotificaton.routes.js";
-import FacultyAdminRouter from "./routes/faculty.admin.routes.js"; // YANGI QOSHILDI
+import FacultyAdminRouter from "./routes/faculty.admin.routes.js";
 
 import mongoose from "mongoose";
 import cors from "cors";
@@ -27,7 +27,9 @@ import { autoRefreshStudentData } from "./utils/refreshData.js";
 import PermissionRouter from "./routes/permission.routes.js";
 import permissionModel from "./models/permission.model.js";
 import { fixExistingStudentData } from "./utils/fixStudentData.js";
-// import migrateStudents from "./utils/migration.js";
+
+// Firebase import
+import firebaseHelper from "./utils/firebase.helper.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +39,7 @@ config();
 const app = express();
 const server = createServer(app);
 
-// Socket.io sozlamalari
+// Socket.io sozlamalari (SAQLAB QOLINGAN)
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -76,26 +78,23 @@ app.use("/public", express.static(path.join(__dirname, "public")));
 const port = 7788;
 const mongo_url = process.env.MONGO_URI;
 
-// index.js - mongoose connect qismidan keyin
 mongoose
   .connect(mongo_url)
   .then(async () => {
     console.log("✅ Database connected successfully");
+    console.log("🔥 Firebase initialized successfully");
 
-    // Index allaqachon mavjud bo'lsa xatolik bermaydi
     try {
       const indexExists = await StudentModel.collection.indexExists(
         "student_id_number_1"
       );
       if (!indexExists) {
         await StudentModel.collection.createIndex({ student_id_number: 1 });
-
         console.log("✅ Index created");
       } else {
         console.log("ℹ️ Index already exists");
       }
     } catch (error) {
-      // Index xatosini e'tiborsiz qoldirish
       if (error.code !== 86) {
         console.error("Index error:", error);
       }
@@ -105,17 +104,23 @@ mongoose
     console.error("❌ Database connection error:", error);
   });
 
+// Socket.IO events (TUTOR uchun saqlab qolingan)
 io.on("connection", (socket) => {
   console.log("Yangi foydalanuvchi ulandi:", socket.id);
 
-  socket.on("joinGroupRoom", ({ studentId, groupId }) => {
+  // Student guruhga qo'shilganda Firebase ga ham qo'shish
+  socket.on("joinGroupRoom", async ({ studentId, groupId }) => {
     if (!groupId || !studentId) return;
 
     const roomName = `group_${groupId}`;
     socket.join(roomName);
     console.log(`Student ${studentId} ${roomName} ga qo'shildi`);
+
+    // Firebase ga ham ro'yxatdan o'tkazish
+    await firebaseHelper.registerStudentToGroup(studentId, groupId);
   });
 
+  // Tutor xabar yuborganda
   socket.on("sendMessage", async ({ tutorId, message, groupId }) => {
     try {
       console.log({ tutorId, message, groupId });
@@ -127,7 +132,6 @@ io.on("connection", (socket) => {
       console.log("group:", findGroup);
 
       if (!findGroup) {
-        // ❌ socket handler ichida res ishlatib bo‘lmaydi
         socket.emit("errorMessage", {
           status: "error",
           message: "Sizda bunday guruh mavjud emas",
@@ -135,19 +139,22 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // 🔑 id maydonini code bilan to‘ldiramiz
       const groupData = {
         id: findGroup.code,
         name: findGroup.name,
       };
 
+      // MongoDB ga saqlash
       const newMessage = await chatModel.create({
         tutorId,
         message,
         groups: [groupData],
       });
 
-      // Faqat shu group xonasiga yuborish
+      // Firebase ga ham saqlash (studentlar uchun)
+      await firebaseHelper.saveMessageToFirebase(tutorId, message, groupData);
+
+      // Socket orqali tutorlarga yuborish
       socket.to(`group_${groupData.id}`).emit("receiveMessage", {
         tutorId,
         message,
@@ -164,6 +171,7 @@ io.on("connection", (socket) => {
 
 app.set("io", io);
 
+// Routes
 app.use(StudentRouter);
 app.use(AppartmentRouter);
 app.use(AdminRouter);
@@ -229,5 +237,7 @@ app.use((error, req, res, next) => {
 });
 
 server.listen(port, () => {
-  console.log(`Server has been started on port ${port}`);
+  console.log(`🚀 Server has been started on port ${port}`);
+  console.log(`🔌 Socket.IO is running`);
+  console.log(`🔥 Firebase Realtime Database connected`);
 });

@@ -1,11 +1,76 @@
-// chat.routes.js - yangilangan versiya
+// chat.routes.js - Socket.IO (tutor) + Firebase (student) hybrid versiya
 import express from "express";
 import chatModel from "../models/chat.model.js";
 import authMiddleware from "../middlewares/auth.middleware.js";
 import tutorModel from "../models/tutor.model.js";
+import firebaseHelper from "../utils/firebase.helper.js";
 
 const router = express.Router();
 
+// STUDENT UCHUN: Firebase dan xabarlarni olish
+router.get("/messages/firebase/:groupId", authMiddleware, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { limit = 50 } = req.query;
+
+    // Firebase dan xabarlarni olish
+    const result = await firebaseHelper.getGroupMessages(
+      groupId,
+      parseInt(limit)
+    );
+
+    if (result.success) {
+      res.status(200).json({
+        status: "success",
+        data: result.data,
+        source: "firebase",
+      });
+    } else {
+      res.status(400).json({
+        status: "error",
+        message: result.error,
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+// STUDENT UCHUN: Guruhga qo'shilish (Firebase da ro'yxatdan o'tkazish)
+router.post("/messages/join-firebase", authMiddleware, async (req, res) => {
+  try {
+    const { studentId, groupId } = req.body;
+
+    if (!studentId || !groupId) {
+      return res.status(400).json({
+        status: "error",
+        message: "studentId va groupId majburiy",
+      });
+    }
+
+    // Firebase da ro'yxatdan o'tkazish
+    const result = await firebaseHelper.registerStudentToGroup(
+      studentId,
+      groupId
+    );
+
+    if (result.success) {
+      res.status(200).json({
+        status: "success",
+        message: "Firebase da guruhga qo'shildingiz",
+      });
+    } else {
+      res.status(400).json({
+        status: "error",
+        message: result.error,
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+// ESKI ENDPOINTLAR (backward compatibility)
 router.get("/messages/all", authMiddleware, async (req, res) => {
   try {
     const findAllMessages = await chatModel.find();
@@ -24,9 +89,7 @@ router.get("/messages/my-messages/:id", authMiddleware, async (req, res) => {
         .json({ status: "error", message: "bunday tutor topilmadi" });
     }
 
-    // Endi har bir xabar unique bo'ladi
     const messages = await chatModel.find({ tutorId: req.params.id });
-
     res.status(200).json({ status: "success", data: messages });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
@@ -35,7 +98,6 @@ router.get("/messages/my-messages/:id", authMiddleware, async (req, res) => {
 
 router.get("/messages/by-group/:id", authMiddleware, async (req, res) => {
   try {
-    // Specific guruh uchun xabarlarni topish
     const findMessages = await chatModel
       .find({
         "groups.id": parseInt(req.params.id),
@@ -52,7 +114,13 @@ router.delete(
   authMiddleware,
   async (req, res) => {
     try {
-      await chatModel.deleteMany({ tutorId: req.params.tutorId });
+      const { tutorId } = req.params;
+
+      // MongoDB dan o'chirish
+      await chatModel.deleteMany({ tutorId: tutorId });
+
+      // TODO: Firebase dan ham o'chirish kerak bo'lsa
+
       res.status(200).json({
         status: "success",
         message: "Messagelar muaffaqiyatli ochirildi",
@@ -117,7 +185,7 @@ router.delete("/messages/delete/:groupId", authMiddleware, async (req, res) => {
       });
     }
 
-    // Shu guruhga tegishli barcha xabarlarni topish
+    // MongoDB dan o'chirish
     const findGroupMessages = await chatModel.find({
       "groups.id": Number(groupId),
     });
@@ -129,12 +197,14 @@ router.delete("/messages/delete/:groupId", authMiddleware, async (req, res) => {
       });
     }
 
-    // O‘chirish
     await chatModel.deleteMany({ "groups.id": Number(groupId) });
+
+    // Firebase dan ham o'chirish
+    await firebaseHelper.clearGroupMessages(groupId);
 
     return res.json({
       status: "success",
-      message: "Xabarlar muvaffaqiyatli o‘chirildi",
+      message: "Xabarlar muvaffaqiyatli o'chirildi",
     });
   } catch (error) {
     console.error(error);
