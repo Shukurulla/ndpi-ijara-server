@@ -82,7 +82,15 @@ mongoose
   .connect(mongo_url)
   .then(async () => {
     console.log("✅ Database connected successfully");
-    console.log("🔥 Firebase initialized successfully");
+
+    // Firebase holatini tekshirish
+    if (firebaseHelper.isFirebaseActive()) {
+      console.log("🔥 Firebase initialized successfully");
+    } else {
+      console.log(
+        "⚠️ Firebase ishlamayapti, faqat Socket.IO va MongoDB ishlaydi"
+      );
+    }
 
     try {
       const indexExists = await StudentModel.collection.indexExists(
@@ -106,32 +114,76 @@ mongoose
 
 // Socket.IO events (TUTOR uchun saqlab qolingan)
 io.on("connection", (socket) => {
-  console.log("Yangi foydalanuvchi ulandi:", socket.id);
+  console.log("✅ Yangi foydalanuvchi ulandi:", socket.id);
+
+  // Socket disconnect
+  socket.on("disconnect", () => {
+    console.log("❌ Foydalanuvchi uzildi:", socket.id);
+  });
 
   // Student guruhga qo'shilganda Firebase ga ham qo'shish
-  socket.on("joinGroupRoom", async ({ studentId, groupId }) => {
-    if (!groupId || !studentId) return;
+  socket.on("joinGroupRoom", async (data) => {
+    console.log("📥 joinGroupRoom event keldi:", data);
+
+    const { studentId, groupId } = data;
+    if (!groupId || !studentId) {
+      console.log("⚠️ studentId yoki groupId yo'q");
+      return;
+    }
 
     const roomName = `group_${groupId}`;
     socket.join(roomName);
-    console.log(`Student ${studentId} ${roomName} ga qo'shildi`);
+    console.log(`✅ Student ${studentId} ${roomName} ga qo'shildi`);
 
     // Firebase ga ham ro'yxatdan o'tkazish
     await firebaseHelper.registerStudentToGroup(studentId, groupId);
+
+    // Muvaffaqiyatli qo'shilganini tasdiqlash
+    socket.emit("joinedGroup", {
+      status: "success",
+      groupId,
+      message: "Guruhga muvaffaqiyatli qo'shildingiz",
+    });
   });
 
   // Tutor xabar yuborganda
-  socket.on("sendMessage", async ({ tutorId, message, groupId }) => {
+  socket.on("sendMessage", async (data) => {
     try {
-      console.log({ tutorId, message, groupId });
+      console.log("📨 sendMessage event keldi:", data);
 
+      const { tutorId, message, groupId } = data;
+
+      if (!tutorId || !message || !groupId) {
+        console.log("⚠️ Ma'lumotlar to'liq emas:", {
+          tutorId,
+          message,
+          groupId,
+        });
+        socket.emit("errorMessage", {
+          status: "error",
+          message: "Ma'lumotlar to'liq emas",
+        });
+        return;
+      }
+
+      console.log("🔍 Tutor qidirilmoqda:", tutorId);
       const tutor = await tutorModel.findById(tutorId);
-      console.log("tutor:", tutor);
+
+      if (!tutor) {
+        console.log("❌ Tutor topilmadi:", tutorId);
+        socket.emit("errorMessage", {
+          status: "error",
+          message: "Tutor topilmadi",
+        });
+        return;
+      }
+
+      console.log("✅ Tutor topildi:", tutor.name);
 
       const findGroup = tutor.group.find((c) => c.code == groupId.toString());
-      console.log("group:", findGroup);
 
       if (!findGroup) {
+        console.log("❌ Guruh topilmadi:", groupId);
         socket.emit("errorMessage", {
           status: "error",
           message: "Sizda bunday guruh mavjud emas",
@@ -139,33 +191,75 @@ io.on("connection", (socket) => {
         return;
       }
 
+      console.log("✅ Guruh topildi:", findGroup.name);
+
       const groupData = {
         id: findGroup.code,
         name: findGroup.name,
       };
 
       // MongoDB ga saqlash
+      console.log("💾 MongoDB ga saqlanmoqda...");
       const newMessage = await chatModel.create({
         tutorId,
         message,
         groups: [groupData],
       });
+      console.log("✅ MongoDB ga saqlandi:", newMessage._id);
 
       // Firebase ga ham saqlash (studentlar uchun)
-      await firebaseHelper.saveMessageToFirebase(tutorId, message, groupData);
-
-      // Socket orqali tutorlarga yuborish
-      socket.to(`group_${groupData.id}`).emit("receiveMessage", {
+      console.log("🔥 Firebase ga saqlanmoqda...");
+      const firebaseResult = await firebaseHelper.saveMessageToFirebase(
         tutorId,
+        message,
+        groupData
+      );
+      if (firebaseResult.success) {
+        console.log("✅ Firebase ga saqlandi");
+      } else {
+        console.log("⚠️ Firebase ga saqlanmadi:", firebaseResult.error);
+      }
+
+      // Xabar ma'lumotlarini tayyorlash
+      const messageData = {
+        _id: newMessage._id,
+        tutorId,
+        tutorName: tutor.name,
         message,
         group: groupData,
         createdAt: newMessage.createdAt,
-      });
+      };
 
-      console.log("message:", newMessage);
+      // Socket orqali barcha guruh a'zolariga yuborish
+      const roomName = `group_${groupData.id}`;
+
+      // O'ziga ham yuborish
+      socket.emit("receiveMessage", messageData);
+      console.log("✅ O'ziga yuborildi");
+
+      // Boshqalarga yuborish
+      socket.to(roomName).emit("receiveMessage", messageData);
+      console.log(`✅ ${roomName} dagi boshqalarga yuborildi`);
+
+      // Muvaffaqiyatli yuborilganini tasdiqlash
+      socket.emit("messageSent", {
+        status: "success",
+        messageId: newMessage._id,
+        message: "Xabar muvaffaqiyatli yuborildi",
+      });
     } catch (error) {
-      console.error("Xatolik sendMessage da:", error);
+      console.error("❌ Xatolik sendMessage da:", error);
+      socket.emit("errorMessage", {
+        status: "error",
+        message: error.message || "Xabar yuborishda xatolik",
+      });
     }
+  });
+
+  // Test uchun echo event
+  socket.on("ping", (data) => {
+    console.log("🏓 Ping keldi:", data);
+    socket.emit("pong", { message: "Pong!", timestamp: Date.now() });
   });
 });
 
