@@ -143,6 +143,9 @@ const studentSchema = new mongoose.Schema({
   updated_at: Number,
   hash: String,
   validateUrl: String,
+  fcmToken: {
+    type: String,
+  },
 });
 
 const StudentModel = mongoose.model("student", studentSchema);

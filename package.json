@@ -4,7 +4,13 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop tutorApp",
+    "pm2:restart": "pm2 restart tutorApp",
+    "pm2:delete": "pm2 delete tutorApp",
+    "pm2:logs": "pm2 logs tutorApp",
+    "pm2:monit": "pm2 monit"
   },
   "keywords": [],
   "author": "",
