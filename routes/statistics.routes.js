@@ -10,6 +10,8 @@ import {
 } from "../middlewares/auth.middleware.js";
 import axios from "axios";
 import { config } from "dotenv";
+import permissionModel from "../models/permission.model.js";
+import tutorModel from "../models/tutor.model.js";
 config();
 
 const router = express.Router();
@@ -603,5 +605,356 @@ router.post("/statistics/faculty-data", authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
   }
 });
+// Permission statistikasi - Main Admin uchun (OPTIMIZED)
+router.get(
+  "/statistics/permission/all",
+  authMiddleware,
+  requireMainAdmin,
+  async (req, res) => {
+    try {
+      // Barcha process holatidagi permissionlarni olish
+      const processPermissions = await permissionModel
+        .find({ status: "process" })
+        .select("_id createdAt")
+        .lean();
+
+      if (processPermissions.length === 0) {
+        return res.json({
+          status: "success",
+          data: {
+            hasActivePermission: false,
+            message: "Hozirda process holatidagi permissionlar mavjud emas",
+          },
+        });
+      }
+
+      const permissionIds = processPermissions.map((p) => p._id.toString());
+
+      // Barcha fakultetlar
+      const faculties = await StudentModel.distinct("department.name");
+
+      // Bir martalik aggregation - barcha kerakli ma'lumotlarni olish
+      const appartmentStats = await AppartmentModel.aggregate([
+        {
+          $match: {
+            permission: { $in: permissionIds },
+          },
+        },
+        {
+          $lookup: {
+            from: "students",
+            localField: "studentId",
+            foreignField: "_id",
+            as: "student",
+          },
+        },
+        {
+          $unwind: "$student",
+        },
+        {
+          $group: {
+            _id: "$student.department.name",
+            filledCount: { $sum: 1 },
+            studentIds: { $addToSet: "$studentId" },
+          },
+        },
+      ]);
+
+      // Fakultetlar bo'yicha umumiy talabalar soni
+      const facultyStudentCounts = await StudentModel.aggregate([
+        {
+          $match: {
+            "department.name": { $in: faculties.filter(Boolean) },
+          },
+        },
+        {
+          $group: {
+            _id: "$department.name",
+            totalStudents: { $sum: 1 },
+          },
+        },
+      ]);
+
+      // Ma'lumotlarni birlashtirish
+      const facultyStatsMap = new Map();
+
+      facultyStudentCounts.forEach((item) => {
+        facultyStatsMap.set(item._id, {
+          facultyName: item._id,
+          totalStudents: item.totalStudents,
+          filled: 0,
+          notFilled: item.totalStudents,
+          percentage: "0.0",
+        });
+      });
+
+      appartmentStats.forEach((item) => {
+        if (item._id && facultyStatsMap.has(item._id)) {
+          const faculty = facultyStatsMap.get(item._id);
+          faculty.filled = item.filledCount;
+          faculty.notFilled = faculty.totalStudents - item.filledCount;
+          faculty.percentage =
+            faculty.totalStudents > 0
+              ? ((item.filledCount / faculty.totalStudents) * 100).toFixed(1)
+              : "0.0";
+        }
+      });
+
+      const facultyStats = Array.from(facultyStatsMap.values());
+
+      // Total statistics
+      const totalStats = {
+        totalStudents: facultyStats.reduce(
+          (sum, f) => sum + f.totalStudents,
+          0
+        ),
+        totalFilled: facultyStats.reduce((sum, f) => sum + f.filled, 0),
+        totalNotFilled: facultyStats.reduce((sum, f) => sum + f.notFilled, 0),
+      };
+
+      res.json({
+        status: "success",
+        data: {
+          hasActivePermission: true,
+          activePermissionsCount: processPermissions.length,
+          permissions: processPermissions,
+          faculties: facultyStats.sort((a, b) => b.filled - a.filled),
+          totalStats,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Permission statistics error:", error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
+  }
+);
+
+// Permission statistikasi - Faculty Admin uchun (OPTIMIZED)
+router.get(
+  "/statistics/permission/faculty-admin",
+  authMiddleware,
+  requireFacultyAdmin,
+  async (req, res) => {
+    try {
+      const { userId } = req.userData;
+
+      // Faculty admin ma'lumotlari
+      const facultyAdmin = await facultyAdminModel.findById(userId).lean();
+      if (!facultyAdmin) {
+        return res.status(404).json({
+          status: "error",
+          message: "Fakultet admin topilmadi",
+        });
+      }
+
+      const facultyNames = facultyAdmin.faculties.map((f) => f.name);
+
+      // Barcha process holatidagi permissionlar
+      const processPermissions = await permissionModel
+        .find({ status: "process" })
+        .select("_id createdAt")
+        .lean();
+
+      if (processPermissions.length === 0) {
+        return res.json({
+          status: "success",
+          data: {
+            hasActivePermission: false,
+            message: "Hozirda process holatidagi permissionlar mavjud emas",
+          },
+        });
+      }
+
+      const permissionIds = processPermissions.map((p) => p._id.toString());
+
+      // Fakultetlar bo'yicha statistika (aggregation)
+      const facultyAppartments = await AppartmentModel.aggregate([
+        {
+          $match: {
+            permission: { $in: permissionIds },
+          },
+        },
+        {
+          $lookup: {
+            from: "students",
+            localField: "studentId",
+            foreignField: "_id",
+            as: "student",
+          },
+        },
+        {
+          $unwind: "$student",
+        },
+        {
+          $match: {
+            "student.department.name": { $in: facultyNames },
+          },
+        },
+        {
+          $group: {
+            _id: "$student.department.name",
+            filledCount: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const facultyTotals = await StudentModel.aggregate([
+        {
+          $match: {
+            "department.name": { $in: facultyNames },
+          },
+        },
+        {
+          $group: {
+            _id: "$department.name",
+            totalStudents: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const facultyStatsMap = new Map();
+      facultyTotals.forEach((item) => {
+        facultyStatsMap.set(item._id, {
+          facultyName: item._id,
+          totalStudents: item.totalStudents,
+          filled: 0,
+          notFilled: item.totalStudents,
+          percentage: "0.0",
+        });
+      });
+
+      facultyAppartments.forEach((item) => {
+        if (facultyStatsMap.has(item._id)) {
+          const faculty = facultyStatsMap.get(item._id);
+          faculty.filled = item.filledCount;
+          faculty.notFilled = faculty.totalStudents - item.filledCount;
+          faculty.percentage =
+            faculty.totalStudents > 0
+              ? ((item.filledCount / faculty.totalStudents) * 100).toFixed(1)
+              : "0.0";
+        }
+      });
+
+      const facultyStats = Array.from(facultyStatsMap.values());
+
+      // Guruhlar bo'yicha statistika
+      const tutors = await tutorModel
+        .find({ facultyAdmin: userId })
+        .select("group")
+        .lean();
+
+      const allGroupCodes = tutors.flatMap((t) =>
+        t.group.map((g) => g.code.toString())
+      );
+
+      const groupAppartments = await AppartmentModel.aggregate([
+        {
+          $match: {
+            permission: { $in: permissionIds },
+          },
+        },
+        {
+          $lookup: {
+            from: "students",
+            localField: "studentId",
+            foreignField: "_id",
+            as: "student",
+          },
+        },
+        {
+          $unwind: "$student",
+        },
+        {
+          $addFields: {
+            "student.groupIdString": { $toString: "$student.group.id" },
+          },
+        },
+        {
+          $match: {
+            "student.groupIdString": { $in: allGroupCodes },
+          },
+        },
+        {
+          $group: {
+            _id: "$student.group.id",
+            groupName: { $first: "$student.group.name" },
+            filledCount: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const groupTotals = await StudentModel.aggregate([
+        {
+          $addFields: {
+            groupIdString: { $toString: "$group.id" },
+          },
+        },
+        {
+          $match: {
+            groupIdString: { $in: allGroupCodes },
+          },
+        },
+        {
+          $group: {
+            _id: "$group.id",
+            groupName: { $first: "$group.name" },
+            totalStudents: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const groupStatsMap = new Map();
+      groupTotals.forEach((item) => {
+        groupStatsMap.set(item._id.toString(), {
+          groupName: item.groupName,
+          groupCode: item._id,
+          totalStudents: item.totalStudents,
+          filled: 0,
+          notFilled: item.totalStudents,
+          percentage: "0.0",
+        });
+      });
+
+      groupAppartments.forEach((item) => {
+        const key = item._id.toString();
+        if (groupStatsMap.has(key)) {
+          const group = groupStatsMap.get(key);
+          group.filled = item.filledCount;
+          group.notFilled = group.totalStudents - item.filledCount;
+          group.percentage =
+            group.totalStudents > 0
+              ? ((item.filledCount / group.totalStudents) * 100).toFixed(1)
+              : "0.0";
+        }
+      });
+
+      const groupStats = Array.from(groupStatsMap.values());
+
+      const totalStats = {
+        totalStudents: facultyStats.reduce(
+          (sum, f) => sum + f.totalStudents,
+          0
+        ),
+        totalFilled: facultyStats.reduce((sum, f) => sum + f.filled, 0),
+        totalNotFilled: facultyStats.reduce((sum, f) => sum + f.notFilled, 0),
+      };
+
+      res.json({
+        status: "success",
+        data: {
+          hasActivePermission: true,
+          activePermissionsCount: processPermissions.length,
+          permissions: processPermissions,
+          faculties: facultyStats.sort((a, b) => b.filled - a.filled),
+          groups: groupStats.sort((a, b) => b.filled - a.filled),
+          totalStats,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Faculty admin permission statistics error:", error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
+  }
+);
 
 export default router;
