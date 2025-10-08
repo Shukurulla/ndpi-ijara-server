@@ -614,7 +614,7 @@ router.get(
     try {
       // Barcha process holatidagi permissionlarni olish
       const processPermissions = await permissionModel
-        .find({ status: "process" })
+        .find()
         .select("_id createdAt")
         .lean();
 
@@ -751,7 +751,7 @@ router.get(
 
       // Barcha process holatidagi permissionlar
       const processPermissions = await permissionModel
-        .find({ status: "process" })
+        .find()
         .select("_id createdAt")
         .lean();
 
