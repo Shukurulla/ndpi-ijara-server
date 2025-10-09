@@ -889,7 +889,7 @@ router.put(
         await NotificationModel.create({
           userId,
           notification_type: "report",
-          message: `${field} rasmi tekshirilmoqda`,
+          message: `Tekshirilmoqda`,
           status: "blue",
           appartmentId: req.params.id,
           need_data: field,
