@@ -122,7 +122,7 @@ app.use(
 );
 app.use("/public", express.static(path.join(__dirname, "public")));
 
-const port = 7788;
+const port = 7789;
 const mongo_url = process.env.MONGO_URI;
 
 // MongoDB connection
@@ -131,7 +131,7 @@ mongoose
   .then(async () => {
     console.log("✅ Database connected successfully");
 
-    // Firebase'ni database connected bo'lgandan keyin initialize qilamiz
+    // Firebase'ni database con nected bo'lgandan keyin initialize qilamiz
     await initializeFirebase();
 
     try {
