@@ -87,13 +87,11 @@ router.post(
           });
         }
 
-        if (!req.body.lat || !req.body.long) {
-          return res
-            .status(400)
-            .json({
-              status: "error",
-              message: "Siz joylashuvga ruhsat bermagansiz",
-            });
+        if (!req.body.lat || !req.body.lon) {
+          return res.status(400).json({
+            status: "error",
+            message: "Siz joylashuvga ruhsat bermagansiz",
+          });
         }
 
         const boilerImage = req.files.boilerImage[0];
