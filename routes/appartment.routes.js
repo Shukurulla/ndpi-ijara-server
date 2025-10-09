@@ -800,76 +800,76 @@ router.put(
       console.log("Body ma'lumotlari:", updatedData);
       console.log("Yuklangan fayllar:", req.files);
 
-      // Agar yangi rasmlar yuklangan bo'lsa
-      if (req.files) {
-        const handleImageUpdate = (fieldName, existingUrl) => {
-          if (req.files[fieldName] && req.files[fieldName][0]) {
-            // Eski rasmni o'chirish
-            if (existingUrl) {
-              const oldPath = path.join(__dirname, "..", existingUrl);
-              if (fs.existsSync(oldPath)) {
-                fs.unlinkSync(oldPath);
-              }
-            }
-            // Yangi rasm URL ini to'g'ri formatda qaytarish
-            return `/public/images/${req.files[fieldName][0].filename}`;
+      // o‘zgargan rasm turlarini aniqlash uchun massiv
+      const changedFields = [];
+
+      // Rasmni yangilash uchun funksiya
+      const handleImageUpdate = (fieldName, existingUrl) => {
+        if (req.files[fieldName] && req.files[fieldName][0]) {
+          // Eski rasmni o‘chirish
+          if (existingUrl) {
+            const oldPath = path.join(__dirname, "..", existingUrl);
+            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
           }
-          return existingUrl;
+          // O‘zgargan rasm nomini qayd etamiz
+          changedFields.push(fieldName);
+          // Yangi rasm URL
+          return `/public/images/${req.files[fieldName][0].filename}`;
+        }
+        return existingUrl;
+      };
+
+      // Har bir rasmni alohida tekshirish
+      if (req.files.boilerImage && req.files.boilerImage[0]) {
+        updatedData.boilerImage = {
+          url: handleImageUpdate(
+            "boilerImage",
+            findAppartment.boilerImage?.url
+          ),
+          status: "Being checked",
         };
-
-        // Har bir rasm turini alohida tekshirish va yangilash
-        if (req.files.boilerImage && req.files.boilerImage[0]) {
-          updatedData.boilerImage = {
-            url: handleImageUpdate(
-              "boilerImage",
-              findAppartment.boilerImage?.url
-            ),
-            status: "Being checked", // Yangi rasm yuklanganda status qayta tekshiriladi
-          };
-        }
-
-        if (req.files.gazStove && req.files.gazStove[0]) {
-          updatedData.gazStove = {
-            url: handleImageUpdate("gazStove", findAppartment.gazStove?.url),
-            status: "Being checked", // Yangi rasm yuklanganda status qayta tekshiriladi
-          };
-        }
-
-        if (req.files.chimney && req.files.chimney[0]) {
-          updatedData.chimney = {
-            url: handleImageUpdate("chimney", findAppartment.chimney?.url),
-            status: "Being checked", // Yangi rasm yuklanganda status qayta tekshiriladi
-          };
-        }
-
-        if (req.files.additionImage && req.files.additionImage[0]) {
-          updatedData.additionImage = {
-            url: handleImageUpdate(
-              "additionImage",
-              findAppartment.additionImage?.url
-            ),
-            status: "Being checked", // Yangi rasm yuklanganda status qayta tekshiriladi
-          };
-        }
       }
 
-      // Joylashuvni alohida o'zgartirish
+      if (req.files.gazStove && req.files.gazStove[0]) {
+        updatedData.gazStove = {
+          url: handleImageUpdate("gazStove", findAppartment.gazStove?.url),
+          status: "Being checked",
+        };
+      }
+
+      if (req.files.chimney && req.files.chimney[0]) {
+        updatedData.chimney = {
+          url: handleImageUpdate("chimney", findAppartment.chimney?.url),
+          status: "Being checked",
+        };
+      }
+
+      if (req.files.additionImage && req.files.additionImage[0]) {
+        updatedData.additionImage = {
+          url: handleImageUpdate(
+            "additionImage",
+            findAppartment.additionImage?.url
+          ),
+          status: "Being checked",
+        };
+      }
+
+      // joylashuvni yangilash
       if (req.body.lat && req.body.lon) {
         updatedData.location = {
           lat: req.body.lat,
           long: req.body.lon,
         };
-
-        // Body dan lat va lon ni o'chirish (chunki location objekti bor)
         delete updatedData.lat;
         delete updatedData.lon;
       }
 
-      // Agar biron bir rasm yangilangan bo'lsa, umumiy statusni ham "Being checked" qilish
-      if (req.files && Object.keys(req.files).length > 0) {
+      // Agar rasm yangilansa, umumiy statusni ham Being checked qilish
+      if (changedFields.length > 0) {
         updatedData.status = "Being checked";
       }
 
+      console.log("O‘zgargan rasmlar:", changedFields);
       console.log("Yangilanayotgan ma'lumotlar:", updatedData);
 
       const updateAppartment = await AppartmentModel.findByIdAndUpdate(
@@ -878,21 +878,23 @@ router.put(
         { new: true }
       );
 
-      console.log(updatedData.notificationId);
+      // Har bir o‘zgargan rasm uchun eski notificationni o‘chirish
+      for (const field of changedFields) {
+        await NotificationModel.findOneAndDelete({
+          appartmentId: req.params.id,
+          need_data: field,
+        });
 
-      if (req.body.notificationId) {
-        await NotificationModel.findByIdAndDelete(
-          req.body.notificationId.replace(/"/g, "")
-        );
+        // Yangisini yaratish
+        await NotificationModel.create({
+          userId,
+          notification_type: "report",
+          message: `${field} rasmi tekshirilmoqda`,
+          status: "blue",
+          appartmentId: req.params.id,
+          need_data: field,
+        });
       }
-
-      await NotificationModel.create({
-        userId,
-        notification_type: "report",
-        message: "Tekshirilmoqda",
-        status: "blue",
-        appartmentId: req.params.id,
-      });
 
       res.status(200).json({
         status: "success",
