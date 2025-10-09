@@ -570,15 +570,15 @@ app.post("/api/save-fcm-token", async (req, res) => {
   }
 });
 
-app.get('/groups', async(req,res) => {
+app.get("/groups", async (req, res) => {
   try {
-    const allStudents = await StudentModel.find().select('group')
-    const sortGroups = [...new Set(allStudents)]
-    res.status(200).json({status:"success", data: sortGroups})
+    const allStudents = await StudentModel.find().select("group");
+    const sortGroups = [...new Set(allStudents)];
+    res.status(200).json({ status: "success", data: sortGroups });
   } catch (error) {
-    res.status(500).json({status: "error", message: error.message})
+    res.status(500).json({ status: "error", message: error.message });
   }
-})
+});
 
 // Debug endpoint - Guruh studentlarini tekshirish
 app.get("/api/debug/group/:groupId", async (req, res) => {
@@ -702,7 +702,6 @@ app.get("/info", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
-
 // Banners
 app.get("/get-banners", async (req, res) => {
   const arrBanner = [

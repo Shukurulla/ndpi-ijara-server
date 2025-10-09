@@ -9,10 +9,8 @@ import AppartmentModel from "../models/appartment.model.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import NotificationModel from "../models/notification.model.js";
 import { uploadSingleImage } from "../middlewares/upload.middleware.js";
 import axios from "axios";
-import facultyAdminModel from "../models/faculty.admin.model.js";
 
 const router = express.Router();
 
@@ -404,6 +402,7 @@ router.get("/student/profile", authMiddleware, async (req, res) => {
       group: findStudent.group?.name || "Noma'lum",
       level: findStudent.level?.name || "Noma'lum",
       department: findStudent.department?.name || "Noma'lum",
+      groupId: findStudent.group.id,
     };
 
     res.status(200).json({

@@ -530,4 +530,13 @@ router.delete("/admin/remove-faculty", authMiddleware, async (req, res) => {
   }
 });
 
+router.get("/admin/tutors", async (req, res) => {
+  try {
+    const tutors = await tutorModel.find();
+    res.status(200).json({ status: "success", data: tutors });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
 export default router;
