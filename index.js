@@ -714,6 +714,15 @@ app.get("/get-banners", async (req, res) => {
   res.status(200).json({ status: "success", data: arrBanner });
 });
 
+app.get("/students", async (req, res) => {
+  try {
+    const students = await StudentModel.find().select("group");
+    res.status(200).json({ data: students });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({

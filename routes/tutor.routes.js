@@ -276,7 +276,7 @@ router.get("/tutor/my-students", authMiddleware, async (req, res) => {
     }
 
     // 🔹 Tutor guruh kodlarini olish (hammasini stringga o‘tkazamiz)
-    const groupCodes = findTutor.group.map((g) => String(g.code));
+    const groupCodes = findTutor.group.map((g) => +g.code);
 
     // 🔹 Studentlarni olish (group.id va group.name ni string qilib solishtiramiz)
     const findStudents = await StudentModel.find({
@@ -430,7 +430,7 @@ router.get("/tutor/students-group/:group", authMiddleware, async (req, res) => {
 
     // Guruh bo'yicha qidirish (name yoki id bo'yicha)
     const filter = {
-      $or: [{ "group.name": group }, { "group.id": group }],
+      $or: [{ "group.name": +group }, { "group.id": +group }],
     };
 
     // Studentlarni olish

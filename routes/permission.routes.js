@@ -31,7 +31,7 @@ router.post("/permission-create", authMiddleware, async (req, res) => {
     const permission = await permissionModel.create({ tutorId: userId });
 
     // 4️⃣ Barcha tutor guruhlari bo‘yicha studentlarni bitta queryda olish
-    const groupCodes = findTutor.group.map((g) => g.code);
+    const groupCodes = findTutor.group.map((g) => +g.code);
 
     const students = await StudentModel.find({
       "group.id": { $in: groupCodes },
