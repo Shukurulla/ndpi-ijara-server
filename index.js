@@ -113,7 +113,13 @@ const allowedOrigins = [
   "http://localhost:5174",
   "https://tutorapp-student.vercel.app",
   "https://tutor-admin-eight.vercel.app",
+  "https://testtutorapp.kerek.uz",
 ];
+
+app.use((req, res, next) => {
+  console.log("🛰️ So‘rov keldi:", req.headers.origin);
+  next();
+});
 
 app.use(
   cors({
@@ -121,7 +127,7 @@ app.use(
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.log("❌ Blocked by CORS:", origin);
+        console.log("❌ Bloklangan origin:", origin);
         callback(new Error("CORS not allowed"));
       }
     },
@@ -129,6 +135,9 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   })
 );
+
+// muhim! preflight so‘rovlar uchun
+app.options("*", cors());
 
 app.use(express.json({ limit: "100mb" }));
 app.use(
