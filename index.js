@@ -110,7 +110,12 @@ const io = new Server(server, {
 
 app.use(
   cors({
-    origin: "*",
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "https://tutorapp-student.vercel.app",
+      "https://tutor-admin-eight.vercel.app",
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   })
