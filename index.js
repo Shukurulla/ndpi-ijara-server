@@ -114,6 +114,7 @@ const allowedOrigins = [
   "https://tutorapp-student.vercel.app",
   "https://tutor-admin-eight.vercel.app",
   "https://testtutorapp.kerek.uz",
+  "https://student.kerek.uz",
 ];
 
 app.use((req, res, next) => {
