@@ -15,6 +15,11 @@ const appartmentSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    region: {
+      type: String,
+      required: false,
+      default: null,
+    },
     fullAddress: {
       type: String,
       default: null,

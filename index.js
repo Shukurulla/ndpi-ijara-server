@@ -13,6 +13,7 @@ import NotificationRouter from "./routes/notification.routes.js";
 import AdsRouter from "./routes/ads.routes.js";
 import TutorNotificationRouter from "./routes/tutorNotificaton.routes.js";
 import FacultyAdminRouter from "./routes/faculty.admin.routes.js";
+import DistrictsRouter from "./routes/districts.routes.js";
 import mongoose from "mongoose";
 import cors from "cors";
 import path from "path";
@@ -545,6 +546,7 @@ app.use(ChatRouter);
 app.use("/tutor-notification", TutorNotificationRouter);
 app.use("/permission", PermissionRouter);
 app.use("/faculty-admin", FacultyAdminRouter);
+app.use("/api", DistrictsRouter);
 
 // FCM token save API
 app.post("/api/save-fcm-token", async (req, res) => {

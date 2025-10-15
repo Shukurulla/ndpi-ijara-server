@@ -6,6 +6,7 @@ import bcrypt from "bcrypt";
 import generateToken from "../utils/token.js";
 import StudentModel from "../models/student.model.js";
 import AppartmentModel from "../models/appartment.model.js";
+import permissionModel from "../models/permission.model.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -628,6 +629,73 @@ router.get("/students/all", async (req, res) => {
     res.status(200).json({ status: "success", data: findAllStudents });
   } catch (error) {
     res.status(500).json({ status: "success", message: error.message });
+  }
+});
+
+// Real-time search endpoint
+router.get("/students/search", async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.trim() === "") {
+      return res.status(200).json({ status: "success", data: [] });
+    }
+
+    // Case-insensitive search by full_name
+    const students = await StudentModel.find({
+      full_name: { $regex: q, $options: "i" },
+    })
+      .select("full_name image level group department gender")
+      .populate("group", "name")
+      .populate("department", "name")
+      .populate("gender", "name")
+      .limit(20);
+
+    res.status(200).json({ status: "success", data: students });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
+// Get student with current apartment
+router.get("/students/:id/apartment", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const student = await StudentModel.findById(id)
+      .populate("group", "name")
+      .populate("department", "name")
+      .populate("gender", "name");
+
+    if (!student) {
+      return res
+        .status(404)
+        .json({ status: "error", message: "Student topilmadi" });
+    }
+
+    // Find current apartment with current permission
+    const currentPermission = await permissionModel
+      .findOne({ status: { $ne: "finished" } })
+      .sort({ createdAt: -1 });
+
+    let apartment = null;
+    if (currentPermission) {
+      apartment = await AppartmentModel.findOne({
+        studentId: id,
+        current: true,
+        permission: currentPermission._id,
+      });
+    }
+
+    res.status(200).json({
+      status: "success",
+      data: {
+        student,
+        apartment,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 
