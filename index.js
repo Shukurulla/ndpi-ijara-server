@@ -13,7 +13,6 @@ import NotificationRouter from "./routes/notification.routes.js";
 import AdsRouter from "./routes/ads.routes.js";
 import TutorNotificationRouter from "./routes/tutorNotificaton.routes.js";
 import FacultyAdminRouter from "./routes/faculty.admin.routes.js";
-import DistrictsRouter from "./routes/districts.routes.js";
 import mongoose from "mongoose";
 import cors from "cors";
 import path from "path";
@@ -99,6 +98,7 @@ async function initializeFirebase() {
 
 const app = express();
 const server = createServer(app);
+
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -116,21 +116,13 @@ app.use(
   })
 );
 
-app.use((req, res, next) => {
-  console.log("🛰️ So‘rov keldi:", req.headers.origin);
-  next();
-});
-
-// muhim! preflight so‘rovlar uchun
-app.options("*", cors());
-
 app.use(express.json({ limit: "100mb" }));
 app.use(
   express.urlencoded({ extended: true, limit: "100mb", parameterLimit: 50000 })
 );
 app.use("/public", express.static(path.join(__dirname, "public")));
 
-const port = 7789;
+const port = 7788;
 const mongo_url = process.env.MONGO_URI;
 
 // MongoDB connection
@@ -138,8 +130,7 @@ mongoose
   .connect(mongo_url)
   .then(async () => {
     console.log("✅ Database connected successfully");
-
-    // Firebase'ni database con nected bo'lgandan keyin initialize qilamiz
+    // Firebase'ni database connected bo'lgandan keyin initialize qilamiz
     await initializeFirebase();
 
     try {
@@ -529,7 +520,6 @@ app.use(ChatRouter);
 app.use("/tutor-notification", TutorNotificationRouter);
 app.use("/permission", PermissionRouter);
 app.use("/faculty-admin", FacultyAdminRouter);
-app.use("/api", DistrictsRouter);
 
 // FCM token save API
 app.post("/api/save-fcm-token", async (req, res) => {
@@ -711,6 +701,7 @@ app.get("/info", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+
 // Banners
 app.get("/get-banners", async (req, res) => {
   const arrBanner = [
@@ -721,15 +712,6 @@ app.get("/get-banners", async (req, res) => {
     "/public/banner/website_banner.png",
   ];
   res.status(200).json({ status: "success", data: arrBanner });
-});
-
-app.get("/students", async (req, res) => {
-  try {
-    const students = await StudentModel.find().select("group");
-    res.status(200).json({ data: students });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
 });
 
 // Health check endpoint
