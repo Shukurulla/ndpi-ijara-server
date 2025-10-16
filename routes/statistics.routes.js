@@ -956,5 +956,188 @@ router.get(
     }
   }
 );
+router.post(
+  "/statistics/faculty-groups",
+  authMiddleware,
+  requireMainAdmin,
+  async (req, res) => {
+    try {
+      const { facultyName } = req.body;
+
+      if (!facultyName) {
+        return res.status(400).json({
+          status: "error",
+          message: "Fakultet nomi kiritilmagan",
+        });
+      }
+
+      // Barcha process holatidagi permissionlar
+      const processPermissions = await permissionModel
+        .find({ status: "process" })
+        .select("_id")
+        .lean();
+
+      if (processPermissions.length === 0) {
+        return res.json({
+          status: "success",
+          data: [],
+        });
+      }
+
+      const permissionIds = processPermissions.map((p) => p._id.toString());
+
+      // Fakultet bo'yicha studentlarni olish
+      const students = await StudentModel.find({
+        "department.name": facultyName,
+      })
+        .select("_id group")
+        .lean();
+
+      if (students.length === 0) {
+        return res.json({
+          status: "success",
+          data: [],
+        });
+      }
+
+      // Guruhlar bo'yicha guruhlash
+      const groupsMap = new Map();
+      students.forEach((s) => {
+        if (s.group && s.group.id) {
+          const groupKey = s.group.id.toString();
+          if (!groupsMap.has(groupKey)) {
+            groupsMap.set(groupKey, {
+              groupName: s.group.name,
+              groupCode: s.group.id,
+              totalStudents: 0,
+              studentIds: [],
+            });
+          }
+          const group = groupsMap.get(groupKey);
+          group.totalStudents++;
+          group.studentIds.push(s._id);
+        }
+      });
+
+      // Har bir guruh uchun to'ldirilganlik ma'lumotini olish
+      const groupsWithStats = await Promise.all(
+        Array.from(groupsMap.values()).map(async (group) => {
+          const filledCount = await AppartmentModel.countDocuments({
+            permission: { $in: permissionIds },
+            studentId: { $in: group.studentIds },
+          });
+
+          const percentage =
+            group.totalStudents > 0
+              ? ((filledCount / group.totalStudents) * 100).toFixed(1)
+              : "0.0";
+
+          return {
+            groupName: group.groupName,
+            groupCode: group.groupCode,
+            totalStudents: group.totalStudents,
+            filled: filledCount,
+            notFilled: group.totalStudents - filledCount,
+            percentage,
+          };
+        })
+      );
+
+      // Percentage bo'yicha saralash
+      groupsWithStats.sort(
+        (a, b) => parseFloat(b.percentage) - parseFloat(a.percentage)
+      );
+
+      res.json({
+        status: "success",
+        data: groupsWithStats,
+      });
+    } catch (error) {
+      console.error("❌ Faculty groups error:", error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
+  }
+);
+
+// Guruh studentlarini olish (Faculty Admin uchun)
+router.post(
+  "/statistics/group-students",
+  authMiddleware,
+  requireFacultyAdmin,
+  async (req, res) => {
+    try {
+      const { groupCode } = req.body;
+
+      if (!groupCode) {
+        return res.status(400).json({
+          status: "error",
+          message: "Guruh kodi kiritilmagan",
+        });
+      }
+
+      // Barcha process holatidagi permissionlar
+      const processPermissions = await permissionModel
+        .find({ status: "process" })
+        .select("_id")
+        .lean();
+
+      if (processPermissions.length === 0) {
+        return res.json({
+          status: "success",
+          data: [],
+        });
+      }
+
+      const permissionIds = processPermissions.map((p) => p._id.toString());
+
+      // Guruh studentlarini olish
+      const students = await StudentModel.find({
+        $or: [
+          { "group.id": groupCode },
+          { "group.id": String(groupCode) },
+          { "group.id": Number(groupCode) },
+        ],
+      })
+        .select(
+          "full_name first_name second_name image university level specialty province group"
+        )
+        .lean();
+
+      if (students.length === 0) {
+        return res.json({
+          status: "success",
+          data: [],
+        });
+      }
+
+      // Har bir student uchun to'ldirilganlik holatini tekshirish
+      const studentsWithStatus = await Promise.all(
+        students.map(async (student) => {
+          const appartment = await AppartmentModel.findOne({
+            permission: { $in: permissionIds },
+            studentId: student._id,
+          }).lean();
+
+          return {
+            ...student,
+            filled: !!appartment,
+            appartmentStatus: appartment?.status || null,
+          };
+        })
+      );
+
+      // To'ldirilmagan studentlar oldinda
+      studentsWithStatus.sort((a, b) => a.filled - b.filled);
+
+      res.json({
+        status: "success",
+        data: studentsWithStatus,
+      });
+    } catch (error) {
+      console.error("❌ Group students error:", error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
+  }
+);
 
 export default router;
