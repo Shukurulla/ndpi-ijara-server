@@ -110,11 +110,10 @@ const mixedFileFilter = (req, file, cb) => {
 const uploadLimits = {
   fileSize: 100 * 1024 * 1024, // 100MB
   files: 10,
-  fields: 20,
+  fields: 100, // 20 emas, 100 qilib qo‘ying
   fieldNameSize: 200,
-  fieldSize: 1024 * 1024, // 1MB
+  fieldSize: 1024 * 1024,
 };
-
 // Upload middleware-lari
 export const uploadSingleImage = multer({
   storage: imageStorage,
