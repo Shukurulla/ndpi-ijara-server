@@ -953,4 +953,32 @@ router.get(
   }
 );
 
+router.get("/appartment/count-by-type", async (req, res) => {
+  try {
+    const permissions = await permissionModel.find({ status: "process" });
+    const permissionIds = permissions.map((p) => p._id.toString());
+
+    const appartments = await AppartmentModel.find({
+      permission: { $in: permissionIds },
+    });
+
+    const data = {
+      tenant: appartments.filter((a) => a.typeAppartment === "tenant").length,
+      relative: appartments.filter((a) => a.typeAppartment === "relative")
+        .length,
+      littleHouse: appartments.filter((a) => a.typeAppartment === "littleHouse")
+        .length,
+      bedroom: appartments.filter((a) => a.typeAppartment === "bedroom").length,
+    };
+
+    res.status(200).json({
+      status: "success",
+      data,
+      total: data.tenant + data.relative + data.littleHouse + data.bedroom || 0,
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+
 export default router;
