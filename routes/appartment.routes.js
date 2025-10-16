@@ -23,6 +23,8 @@ router.post(
   async (req, res) => {
     try {
       const { studentId, typeAppartment, permission } = req.body;
+      console.log(req.body);
+      console.log(req.files);
 
       // Studentning current appartmenti bor-yo'qligini tekshirish
       if (!studentId || studentId === "undefined" || studentId.trim() === "") {
@@ -305,6 +307,8 @@ router.post(
         });
       }
     } catch (error) {
+      console.log(req.body);
+      console.log(req.files);
       console.error("Xatolik:", error);
       res.status(500).json({
         status: "error",
