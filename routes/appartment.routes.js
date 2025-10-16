@@ -963,7 +963,21 @@ router.get("/appartment/count-by-type", async (req, res) => {
     });
 
     const data = {
-      tenant: appartments.filter((a) => a.typeAppartment === "tenant").length,
+      tenant: {
+        total: appartments.filter((a) => a.typeAppartment === "tenant").length,
+        red: appartments.filter(
+          (a) => a.typeAppartment === "tenant" && a.status === "red"
+        ).length,
+        yellow: appartments.filter(
+          (a) => a.typeAppartment === "tenant" && a.status === "yellow"
+        ).length,
+        green: appartments.filter(
+          (a) => a.typeAppartment === "tenant" && a.status === "green"
+        ).length,
+        blue: appartments.filter(
+          (a) => a.typeAppartment === "tenant" && a.status === "Being checked"
+        ).length,
+      },
       relative: appartments.filter((a) => a.typeAppartment === "relative")
         .length,
       littleHouse: appartments.filter((a) => a.typeAppartment === "littleHouse")
