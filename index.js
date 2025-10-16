@@ -99,7 +99,6 @@ async function initializeFirebase() {
 
 const app = express();
 const server = createServer(app);
-
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -109,37 +108,18 @@ const io = new Server(server, {
   transports: ["websocket", "polling"],
 });
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "https://tutorapp-student.vercel.app",
-  "https://tutor-admin-eight.vercel.app",
-  "https://testtutorapp.kerek.uz",
-  "https://student.kerek.uz",
-  "https://admin.qmu-ijara.uz",
-  "https://www.qmu-ijara.uz",
-  "https://qmu-ijara.uz",
-];
+app.use(
+  cors({
+    origin: "*",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  })
+);
 
 app.use((req, res, next) => {
   console.log("🛰️ So‘rov keldi:", req.headers.origin);
   next();
 });
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ Bloklangan origin:", origin);
-        callback(new Error("CORS not allowed"));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  })
-);
 
 // muhim! preflight so‘rovlar uchun
 app.options("*", cors());
