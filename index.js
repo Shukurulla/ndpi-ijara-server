@@ -116,6 +116,9 @@ const allowedOrigins = [
   "https://tutor-admin-eight.vercel.app",
   "https://testtutorapp.kerek.uz",
   "https://student.kerek.uz",
+  "https://admin.qmu-ijara.uz",
+  "https://www.qmu-ijara.uz",
+  "https://qmu-ijara.uz",
 ];
 
 app.use((req, res, next) => {
