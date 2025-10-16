@@ -39,7 +39,9 @@ router.get("/district/regions", async (req, res) => {
     console.log("🔍 Fetching regions from /district/regions...");
     const allDistricts = await districtsModel.find().select("region");
     console.log("📊 Total districts found:", allDistricts.length);
-    const regions = [...new Set(allDistricts.map(d => d.region))].filter(r => r);
+    const regions = [...new Set(allDistricts.map((d) => d.region))].filter(
+      (r) => r
+    );
     console.log("✅ Unique regions:", regions);
     res.status(200).json({ status: "success", data: regions });
   } catch (error) {
@@ -54,7 +56,9 @@ router.get("/regions", async (req, res) => {
     console.log("🔍 Fetching regions from /regions...");
     const allDistricts = await districtsModel.find().select("region");
     console.log("📊 Total districts found:", allDistricts.length);
-    const regions = [...new Set(allDistricts.map(d => d.region))].filter(r => r);
+    const regions = [...new Set(allDistricts.map((d) => d.region))].filter(
+      (r) => r
+    );
     console.log("✅ Unique regions:", regions);
     res.status(200).json({ status: "success", data: regions });
   } catch (error) {
@@ -112,7 +116,7 @@ router.delete("/district/:id", authMiddleware, async (req, res) => {
     await districtsModel.findByIdAndDelete(id);
     res.status(200).json({
       status: "success",
-      message: "Mahalla muvaffaqiyatli o'chirildi"
+      message: "Mahalla muvaffaqiyatli o'chirildi",
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
@@ -120,6 +124,19 @@ router.delete("/district/:id", authMiddleware, async (req, res) => {
 });
 
 router.post("/district/load-from-excel", authMiddleware, async (req, res) => {
+  try {
+    const result = await loadDistrictsFromExcel();
+
+    if (result.success) {
+      res.status(200).json({ status: "success", data: result });
+    } else {
+      res.status(500).json({ status: "error", message: result.message });
+    }
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
+router.get("/district/load-from-excel", async (req, res) => {
   try {
     const result = await loadDistrictsFromExcel();
 
