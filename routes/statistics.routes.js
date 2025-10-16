@@ -704,10 +704,9 @@ router.get(
       const allStudentsCount = await StudentModel.countDocuments();
       // Total statistics
       const totalStats = {
-        totalStudents: 27307,
+        totalStudents: allStudentsCount,
         totalFilled: facultyStats.reduce((sum, f) => sum + f.filled, 0),
-        totalNotFilled:
-          27307 - facultyStats.reduce((sum, f) => sum + f.filled, 0),
+        totalNotFilled: facultyStats.reduce((sum, f) => sum + f.notFilled, 0),
       };
 
       res.json({
