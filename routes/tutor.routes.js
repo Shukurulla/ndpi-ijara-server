@@ -430,7 +430,10 @@ router.get("/tutor/students-group/:group", authMiddleware, async (req, res) => {
 
     // Guruh bo'yicha qidirish (name yoki id bo'yicha)
     const filter = {
-      $or: [{ "group.name": +group }, { "group.id": +group }],
+      $or: [
+        { "group.name": group.toString() },
+        { "group.id": group.toString() },
+      ],
     };
 
     // Studentlarni olish
