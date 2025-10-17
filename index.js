@@ -29,6 +29,7 @@ import permissionModel from "./models/permission.model.js";
 import { fixExistingStudentData } from "./utils/fixStudentData.js";
 import AppartmentModel from "./models/appartment.model.js";
 import DistrictsRoutes from "./routes/districts.routes.js";
+import StatusServer from "./routes/statusServer.routes.js";
 
 // Firebase Admin SDK - Dinamik import
 let admin = null;
@@ -522,6 +523,7 @@ app.use("/tutor-notification", TutorNotificationRouter);
 app.use("/permission", PermissionRouter);
 app.use("/faculty-admin", FacultyAdminRouter);
 app.use("/api", DistrictsRoutes);
+app.use("/api", StatusServer);
 
 // FCM token save API
 app.post("/api/save-fcm-token", async (req, res) => {
