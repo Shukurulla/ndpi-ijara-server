@@ -44,14 +44,20 @@ const isAdmin = async (id, res) => {
   }
 };
 
-router.get("/statistics/students/gender", authMiddleware, async (req, res) => {
+router.get("/statistics/students/gender", async (req, res) => {
   try {
-    const { userId } = req.userData;
-    isAdmin(userId, res);
-    const { data } = await axios.get(
-      `https://student.karsu.uz/rest/v1/public/stat-student`
-    );
-    res.json({ status: "success", data: data.data.education_type.Jami });
+    const maleStudents = await StudentModel.countDocuments({
+      "gender.name": "Erkak",
+    });
+    const femaleStudents = await StudentModel.countDocuments({
+      "gender.name": "Ayol",
+    });
+    const data = {
+      Erkak: maleStudents,
+      Ayol: femaleStudents,
+    };
+
+    res.json({ status: "success", data });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
   }
@@ -1136,5 +1142,67 @@ router.post(
     }
   }
 );
+
+router.get("/statistics/permissions/recent", async (req, res) => {
+  try {
+    const activePermissions = await permissionModel.find({
+      status: "process",
+    });
+    const permissionIds = activePermissions.map((p) => p._id.toString());
+
+    const recentAppartments = await AppartmentModel.find({
+      permission: { $in: permissionIds },
+    });
+
+    const totalTenants = await AppartmentModel.countDocuments({
+      typeAppartment: "tenant",
+    });
+    const totalRelative = await AppartmentModel.countDocuments({
+      typeAppartment: "relative",
+    });
+    const totalLittleHouse = await AppartmentModel.countDocuments({
+      typeAppartment: "littleHouse",
+    });
+    const totalBedRoom = await AppartmentModel.countDocuments({
+      typeAppartment: "bedroom",
+    });
+
+    const totalAppartments = recentAppartments.length;
+    const redAppartments = await AppartmentModel.countDocuments({
+      typeAppartment: "tenant",
+      status: "red",
+    });
+    const greenAppartments = await AppartmentModel.countDocuments({
+      typeAppartment: "tenant",
+      status: "green",
+    });
+    const yellowAppartments = await AppartmentModel.countDocuments({
+      typeAppartment: "tenant",
+      status: "yellow",
+    });
+    const blueAppartments = await AppartmentModel.countDocuments({
+      typeAppartment: "tenant",
+      status: "Being checked",
+    });
+
+    res.json({
+      status: "success",
+      data: {
+        totalAppartments,
+        redAppartments,
+        greenAppartments,
+        yellowAppartments,
+        blueAppartments,
+        totalTenants,
+        totalRelative,
+        totalLittleHouse,
+        totalBedRoom,
+      },
+    });
+  } catch (error) {
+    console.error("Recent permissions error:", error);
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
 
 export default router;
