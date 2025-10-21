@@ -81,7 +81,8 @@ router.post(
           !req.files ||
           !req.files.boilerImage ||
           !req.files.gazStove ||
-          !req.files.chimney
+          !req.files.chimney ||
+          !req.files.additionImage
         ) {
           return res.status(400).json({
             status: "error",

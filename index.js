@@ -551,13 +551,16 @@ io.on("connection", (socket) => {
 
 app.set("io", io);
 
-// Global middleware - refresh holatini tekshirish
+// Routes (middleware'siz - login va asosiy funksiyalar ishlashi uchun)
+app.use(AdminRouter);
+app.use("/faculty-admin", FacultyAdminRouter);
+
+// Refresh check middleware - faqat student ma'lumotlari bilan bog'liq route'lar uchun
 app.use(checkRefreshStatus);
 
-// Routes
+// Student ma'lumotlari bilan bog'liq route'lar
 app.use(StudentRouter);
 app.use(AppartmentRouter);
-app.use(AdminRouter);
 app.use(TutorRouter);
 app.use(StatisticsRouter);
 app.use(FilledRouter);
@@ -566,7 +569,6 @@ app.use(AdsRouter);
 app.use(ChatRouter);
 app.use("/tutor-notification", TutorNotificationRouter);
 app.use("/permission", PermissionRouter);
-app.use("/faculty-admin", FacultyAdminRouter);
 app.use("/api", DistrictsRoutes);
 app.use("/api", StatusServer);
 
