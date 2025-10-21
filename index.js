@@ -23,7 +23,10 @@ import tutorModel from "./models/tutor.model.js";
 import chatModel from "./models/chat.model.js";
 import StudentModel from "./models/student.model.js";
 import axios from "axios";
-import { autoRefreshStudentData } from "./utils/refreshData.js";
+import {
+  autoRefreshStudentData,
+  startAutoRefreshCron,
+} from "./utils/refreshData.js";
 import PermissionRouter from "./routes/permission.routes.js";
 import permissionModel from "./models/permission.model.js";
 import { fixExistingStudentData } from "./utils/fixStudentData.js";
@@ -39,6 +42,40 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 config();
+
+// Firebase warning va errorlarini filtrlash
+const originalConsoleWarn = console.warn;
+const originalConsoleError = console.error;
+
+console.warn = function (...args) {
+  const message = args.join(" ");
+  // Firebase warning va errorlarini yashirish
+  if (
+    message.includes("@firebase/database") ||
+    message.includes("FIREBASE WARNING") ||
+    message.includes("invalid_grant") ||
+    message.includes("Invalid JWT Signature") ||
+    message.includes("app/invalid-credential")
+  ) {
+    return; // Firebase warninglarini ko'rsatmaslik
+  }
+  originalConsoleWarn.apply(console, args);
+};
+
+console.error = function (...args) {
+  const message = args.join(" ");
+  // Firebase errorlarini yashirish
+  if (
+    message.includes("@firebase/database") ||
+    message.includes("FIREBASE WARNING") ||
+    message.includes("invalid_grant") ||
+    message.includes("Invalid JWT Signature") ||
+    message.includes("app/invalid-credential")
+  ) {
+    return; // Firebase errorlarini ko'rsatmaslik
+  }
+  originalConsoleError.apply(console, args);
+};
 
 // Firebase'ni asinxron yuklash va initialize qilish
 async function initializeFirebase() {
@@ -132,8 +169,12 @@ mongoose
   .connect(mongo_url)
   .then(async () => {
     console.log("✅ Database connected successfully");
+
     // Firebase'ni database connected bo'lgandan keyin initialize qilamiz
     await initializeFirebase();
+
+    // Cron job ni ishga tushirish
+    startAutoRefreshCron();
 
     try {
       const indexExists = await StudentModel.collection.indexExists(

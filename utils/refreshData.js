@@ -1,11 +1,12 @@
 import axios from "axios";
 import StudentModel from "../models/student.model.js";
+import cron from "node-cron";
 
 // Sahifa yuklash timeoutini qisqa qilish
-const AXIOS_TIMEOUT = 8000;
-const CONCURRENT_REQUESTS = 10; // Parallel so'rovlar soni oshirildi
+const AXIOS_TIMEOUT = 10000;
+const CONCURRENT_REQUESTS = 10; // Parallel so'rovlar soni
 
-// Student ma'lumotlarini tozalash
+// Student ma'lumotlarini tozalash va to'g'ri tipga o'girish
 const cleanStudentData = (studentData) => {
   if (!studentData || !studentData.student_id_number) return null;
 
@@ -24,43 +25,6 @@ const cleanStudentData = (studentData) => {
       ? { ...studentData.semester, id: String(studentData.semester.id) }
       : undefined,
   };
-};
-
-// Mavjud student ID larni olish (memory'da saqlash)
-const getExistingStudentIds = async () => {
-  try {
-    const existingIds = await StudentModel.distinct("student_id_number");
-    return new Set(existingIds);
-  } catch (error) {
-    console.error("❌ Mavjud student ID larni olishda xato:", error.message);
-    return new Set();
-  }
-};
-
-// Yangi studentlarni batch qo'shish
-const insertNewStudentsBatch = async (newStudents) => {
-  if (!newStudents || newStudents.length === 0) return { created: 0 };
-
-  try {
-    const result = await StudentModel.insertMany(newStudents, {
-      ordered: false,
-      writeConcern: { w: 1, j: false }, // Performance uchun
-    });
-    return { created: result.length };
-  } catch (error) {
-    // Duplicate key errors ni ignore qilamiz
-    if (error.code === 11000) {
-      const successfulInserts = error.result?.insertedCount || 0;
-      console.log(
-        `⚠️  ${
-          error.writeErrors?.length || 0
-        } ta duplicate topildi, ${successfulInserts} ta yangi student qo'shildi`
-      );
-      return { created: successfulInserts };
-    }
-    console.error("❌ Batch insert error:", error.message);
-    return { created: 0 };
-  }
 };
 
 // Biror sahifani olish (retry logic bilan)
@@ -83,7 +47,6 @@ const fetchPageWithRetry = async (page, token, retries = 2) => {
         );
         return [];
       }
-      // Qisqa kutish va qayta urinish
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
@@ -112,15 +75,25 @@ const createProgressTracker = (total) => {
   };
 };
 
-// 🚀 Asosiy funksiya - to'liq qayta yozilgan
+// 🚀 Asosiy funksiya - to'liq yangilangan
 export async function autoRefreshStudentData() {
   const startTime = Date.now();
   const token = "Bearer erkFR_9u2IOFoaGxYQPDmjmXVe6Oqv3s";
 
   try {
-    console.log("\n🚀 STUDENT DATA AUTO REFRESH START (OPTIMIZED)");
+    console.log("\n🚀 STUDENT DATA FULL REFRESH START");
+    console.log(
+      `🕐 Boshlangan vaqt: ${new Date().toLocaleString("uz-UZ", {
+        timeZone: "Asia/Samarkand",
+      })}`
+    );
 
-    // 1. API dan jami ma'lumotlar sonini olamiz
+    // 1. Barcha studentlarni o'chirish
+    console.log("🗑️  Barcha mavjud studentlarni o'chirish...");
+    const deleteResult = await StudentModel.deleteMany({});
+    console.log(`✅ ${deleteResult.deletedCount} ta student o'chirildi`);
+
+    // 2. API dan jami ma'lumotlar sonini olamiz
     console.log("📡 API ma'lumotlarini tekshirish...");
     const firstResp = await axios.get(
       "https://student.karsu.uz/rest/v1/data/student-list?limit=200",
@@ -133,42 +106,13 @@ export async function autoRefreshStudentData() {
     const { pageCount, totalCount } = firstResp.data.data.pagination;
     console.log(`📊 API jami: ${totalCount} student, ${pageCount} sahifa`);
 
-    // 2. Bazadagi mavjud ma'lumotlarni tekshiramiz
-    console.log("💾 Bazadagi ma'lumotlarni tekshirish...");
-    const [currentDbCount, existingIds] = await Promise.all([
-      StudentModel.countDocuments(),
-      getExistingStudentIds(),
-    ]);
-
-    console.log(`💾 Bazada mavjud: ${currentDbCount} student`);
-    console.log(`🔍 Mavjud ID lar yuklandi: ${existingIds.size} ta`);
-
-    // 3. Agar bazadagi soni API bilan deyarli bir xil bo'lsa, yangilanish kerak emas
-    const difference = Math.abs(totalCount - currentDbCount);
-    if (difference <= 5) {
-      console.log(
-        `✅ Ma'lumotlar deyarli bir xil (farq: ${difference}). Yangilanish kerak emas.`
-      );
-      return {
-        success: true,
-        duration: Math.round((Date.now() - startTime) / 1000),
-        processed: 0,
-        created: 0,
-        skipped: true,
-        finalCount: currentDbCount,
-        message: "Ma'lumotlar allaqachon yangi",
-      };
-    }
-
-    console.log(`🔄 ${difference} ta yangi student kutilmoqda...`);
-
-    // 4. Progress tracker yaratamiz
+    // 3. Progress tracker yaratamiz
     const progress = createProgressTracker(totalCount);
 
-    // 5. Parallel ravishda sahifalarni yuklaymiz va faqat yangi studentlarni qo'shamiz
+    // 4. Parallel ravishda sahifalarni yuklaymiz va bazaga qo'shamiz
     let totalCreated = 0;
     let totalProcessed = 0;
-    let newStudentsBatch = [];
+    let studentsBatch = [];
     const BATCH_SIZE = 1000; // Har 1000 tadan batch qilib qo'shamiz
 
     console.log(
@@ -176,12 +120,20 @@ export async function autoRefreshStudentData() {
     );
 
     for (let i = 1; i <= pageCount; i += CONCURRENT_REQUESTS) {
+      console.log(
+        `🔄 Batch ${Math.ceil(
+          i / CONCURRENT_REQUESTS
+        )}: sahifalar ${i} dan ${Math.min(
+          i + CONCURRENT_REQUESTS - 1,
+          pageCount
+        )} gacha yuklanmoqda...`
+      );
+
       // Parallel sahifalarni yuklash
       const pagePromises = [];
       for (let j = 0; j < CONCURRENT_REQUESTS && i + j <= pageCount; j++) {
         const pageNum = i + j;
         if (pageNum === 1) {
-          // Birinchi sahifa allaqachon olingan
           pagePromises.push(Promise.resolve(firstResp.data.data.items || []));
         } else {
           pagePromises.push(fetchPageWithRetry(pageNum, token));
@@ -189,37 +141,68 @@ export async function autoRefreshStudentData() {
       }
 
       const pageResults = await Promise.all(pagePromises);
+      console.log(
+        `✅ Batch tugadi: ${pageResults
+          .map((p) => p.length)
+          .join(", ")} ta student olindi`
+      );
 
       // Har bir sahifadagi studentlarni qayta ishlaymiz
+      let batchCount = 0;
       for (const students of pageResults) {
         for (const studentData of students) {
           totalProcessed++;
           const cleanedData = cleanStudentData(studentData);
 
-          if (cleanedData && !existingIds.has(cleanedData.student_id_number)) {
-            newStudentsBatch.push(cleanedData);
-            existingIds.add(cleanedData.student_id_number); // Takrorlanmaslik uchun qo'shamiz
+          if (cleanedData) {
+            studentsBatch.push(cleanedData);
+            batchCount++;
           }
         }
       }
+      console.log(`📝 Bu batchda: ${batchCount} ta student tayyorlandi`);
 
       // Batch hajmi yetganda bazaga qo'shamiz
-      if (newStudentsBatch.length >= BATCH_SIZE) {
-        const { created } = await insertNewStudentsBatch(newStudentsBatch);
-        totalCreated += created;
-        newStudentsBatch = []; // Batch ni tozalaymiz
+      if (studentsBatch.length >= BATCH_SIZE) {
+        console.log(
+          `💾 ${studentsBatch.length} ta student bazaga qo'shilmoqda...`
+        );
+        try {
+          const result = await StudentModel.insertMany(studentsBatch, {
+            ordered: false,
+          });
+          totalCreated += result.length;
+          console.log(
+            `✅ ${result.length} ta student muvaffaqiyatli qo'shildi`
+          );
+        } catch (error) {
+          console.error(`❌ Batch insert error:`, error.message);
+        }
+        studentsBatch = [];
       }
 
       progress.update(pageResults.reduce((sum, page) => sum + page.length, 0));
     }
 
     // Oxirgi batch ni ham qo'shamiz
-    if (newStudentsBatch.length > 0) {
-      const { created } = await insertNewStudentsBatch(newStudentsBatch);
-      totalCreated += created;
+    if (studentsBatch.length > 0) {
+      console.log(
+        `💾 Oxirgi ${studentsBatch.length} ta student bazaga qo'shilmoqda...`
+      );
+      try {
+        const result = await StudentModel.insertMany(studentsBatch, {
+          ordered: false,
+        });
+        totalCreated += result.length;
+        console.log(
+          `✅ Oxirgi batch: ${result.length} ta student muvaffaqiyatli qo'shildi`
+        );
+      } catch (error) {
+        console.error(`❌ Oxirgi batch insert error:`, error.message);
+      }
     }
 
-    // 6. Yakuniy statistika
+    // 5. Yakuniy statistika
     const finalCount = await StudentModel.countDocuments();
     const [genderStats, levelStats] = await Promise.all([
       StudentModel.aggregate([
@@ -232,10 +215,10 @@ export async function autoRefreshStudentData() {
 
     const duration = Math.round((Date.now() - startTime) / 1000);
 
-    console.log("\n🎉 OPTIMIZED REFRESH COMPLETED");
+    console.log("\n🎉 FULL REFRESH COMPLETED");
     console.log(`⏱️  Vaqt: ${duration} sekund`);
     console.log(`📥 API dan olindi: ${totalProcessed} student`);
-    console.log(`✨ Bazaga qo'shildi: ${totalCreated} yangi student`);
+    console.log(`✨ Bazaga qo'shildi: ${totalCreated} student`);
     console.log(`💾 Bazada jami: ${finalCount} student`);
     console.log(
       `🎯 API vs Baza: ${totalCount} vs ${finalCount} (farq: ${Math.abs(
@@ -250,6 +233,7 @@ export async function autoRefreshStudentData() {
       duration,
       processed: totalProcessed,
       created: totalCreated,
+      deleted: deleteResult.deletedCount,
       finalCount,
       apiCount: totalCount,
       genderStats,
@@ -258,7 +242,7 @@ export async function autoRefreshStudentData() {
     };
   } catch (error) {
     const duration = Math.round((Date.now() - startTime) / 1000);
-    console.error("❌ OPTIMIZED REFRESH FAILED:", error.message);
+    console.error("❌ FULL REFRESH FAILED:", error.message);
 
     return {
       success: false,
@@ -267,4 +251,21 @@ export async function autoRefreshStudentData() {
       suggestion: "Internet aloqasini yoki API tokenini tekshiring",
     };
   }
+}
+
+// Cron job - har kuni 00:00 da ishga tushadi
+export function startAutoRefreshCron() {
+  // Har kuni soat 00:00 da ishga tushadi (Toshkent vaqti bo'yicha)
+  cron.schedule(
+    "0 0 * * *",
+    async () => {
+      console.log("\n⏰ CRON JOB: Avtomatik refresh boshlandi");
+      await autoRefreshStudentData();
+    },
+    {
+      timezone: "Asia/Samarkand",
+    }
+  );
+
+  console.log("✅ Cron job o'rnatildi: Har kuni 00:00 da avtomatik refresh");
 }
