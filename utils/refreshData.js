@@ -2,9 +2,17 @@ import axios from "axios";
 import StudentModel from "../models/student.model.js";
 import cron from "node-cron";
 
-// Sahifa yuklash timeoutini qisqa qilish
+// Global flag - refresh jarayoni davom etayotganini ko'rsatadi
+let isRefreshing = false;
+
+// Sahifa yuklash timeTimeoutini qisqa qilish
 const AXIOS_TIMEOUT = 10000;
 const CONCURRENT_REQUESTS = 10; // Parallel so'rovlar soni
+
+// Refresh holatini tekshirish funksiyasi
+export function isSystemRefreshing() {
+  return isRefreshing;
+}
 
 // Student ma'lumotlarini tozalash va to'g'ri tipga o'girish
 const cleanStudentData = (studentData) => {
@@ -77,6 +85,21 @@ const createProgressTracker = (total) => {
 
 // 🚀 Asosiy funksiya - to'liq yangilangan
 export async function autoRefreshStudentData() {
+  // Agar refresh jarayoni davom etayotgan bo'lsa, xabar qaytarish
+  if (isRefreshing) {
+    console.log(
+      "⚠️  Refresh allaqachon davom etmoqda, yangi refresh boshlanmadi"
+    );
+    return {
+      success: false,
+      message:
+        "Tizimda yangilanish jarayoni davom etmoqda. Iltimos, keyinroq urinib ko'ring.",
+      isRefreshing: true,
+    };
+  }
+
+  // Refresh boshlanganini belgilash
+  isRefreshing = true;
   const startTime = Date.now();
   const token = "Bearer erkFR_9u2IOFoaGxYQPDmjmXVe6Oqv3s";
 
@@ -228,6 +251,9 @@ export async function autoRefreshStudentData() {
     console.log(`👤 Jins bo'yicha:`, genderStats);
     console.log(`🎓 Daraja bo'yicha:`, levelStats);
 
+    // Refresh tugaganini belgilash
+    isRefreshing = false;
+
     return {
       success: true,
       duration,
@@ -244,6 +270,9 @@ export async function autoRefreshStudentData() {
     const duration = Math.round((Date.now() - startTime) / 1000);
     console.error("❌ FULL REFRESH FAILED:", error.message);
 
+    // Xato bo'lsa ham refresh tugaganini belgilash
+    isRefreshing = false;
+
     return {
       success: false,
       duration,
@@ -253,11 +282,11 @@ export async function autoRefreshStudentData() {
   }
 }
 
-// Cron job - har kuni 00:00 da ishga tushadi
+// Cron job - har kuni 00:30 da ishga tushadi
 export function startAutoRefreshCron() {
-  // Har kuni soat 00:00 da ishga tushadi (Toshkent vaqti bo'yicha)
+  // Har kuni soat 00:30 da ishga tushadi (Toshkent vaqti bo'yicha)
   cron.schedule(
-    "0 0 * * *",
+    "30 0 * * *",
     async () => {
       console.log("\n⏰ CRON JOB: Avtomatik refresh boshlandi");
       await autoRefreshStudentData();
@@ -267,5 +296,5 @@ export function startAutoRefreshCron() {
     }
   );
 
-  console.log("✅ Cron job o'rnatildi: Har kuni 00:00 da avtomatik refresh");
+  console.log("✅ Cron job o'rnatildi: Har kuni 00:30 da avtomatik refresh");
 }

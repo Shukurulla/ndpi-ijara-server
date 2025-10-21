@@ -33,6 +33,7 @@ import { fixExistingStudentData } from "./utils/fixStudentData.js";
 import AppartmentModel from "./models/appartment.model.js";
 import DistrictsRoutes from "./routes/districts.routes.js";
 import StatusServer from "./routes/statusServer.routes.js";
+import { checkRefreshStatus } from "./middlewares/refreshCheck.middleware.js";
 
 // Firebase Admin SDK - Dinamik import
 let admin = null;
@@ -549,6 +550,9 @@ io.on("connection", (socket) => {
 });
 
 app.set("io", io);
+
+// Global middleware - refresh holatini tekshirish
+app.use(checkRefreshStatus);
 
 // Routes
 app.use(StudentRouter);
