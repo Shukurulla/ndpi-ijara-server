@@ -625,7 +625,6 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
     const { userId } = req.userData;
     const { status } = req.params;
 
-    // Faqat to‘g‘ri statuslar
     if (!["red", "yellow", "green", "blue"].includes(status)) {
       return res.status(401).json({
         status: "error",
@@ -633,7 +632,6 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // Tutor bormi?
     const findTutor = await tutorModel.findById(userId).lean();
     if (!findTutor) {
       return res.status(400).json({
@@ -642,13 +640,11 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // Tutor guruhlari
     const tutorGroups = findTutor.group.map((g) => ({
       code: g.code?.toString(),
       name: g.name,
     }));
 
-    // Tutor permissioni
     const activePermission = await permissionModel
       .findOne({
         tutorId: userId,
@@ -663,13 +659,14 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // Statusni to‘g‘rilash
+    const normalizedStatus = status.toLowerCase();
     const statusQuery =
-      status === "blue"
-        ? { $or: [{ status: "Being checked" }, { status: { $exists: false } }] }
-        : { status: status };
+      normalizedStatus === "blue"
+        ? {
+            $or: [{ status: /being checked/i }, { status: { $exists: false } }],
+          }
+        : { status: new RegExp(`^${normalizedStatus}$`, "i") };
 
-    // Appartmentlarni olish
     const appartments = await AppartmentModel.find({
       typeAppartment: "tenant",
       permission: activePermission._id.toString(),
@@ -678,12 +675,18 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       .populate("studentId", "group")
       .lean();
 
-    // Guruhlar bo‘yicha hisoblash
+    console.log(
+      "Student groups:",
+      appartments.map((a) => a.studentId?.group)
+    );
+
     const groupCounts = {};
     for (const app of appartments) {
       const student = app.studentId;
-      if (student?.group?.id) {
-        const studentGroupCode = student.group.id.toString();
+      if (student?.group?.code || student?.group?.id) {
+        const studentGroupCode = (
+          student.group.code || student.group.id
+        ).toString();
 
         if (!groupCounts[studentGroupCode]) {
           groupCounts[studentGroupCode] = 0;
@@ -692,14 +695,13 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       }
     }
 
-    // Tutor guruhlarini natija qilib qaytarish (faqat count > 0 bo‘lsa)
     const result = tutorGroups
       .map((tg) => ({
         code: tg.code,
         groupName: tg.name,
-        countStudents: groupCounts[tg.code],
+        countStudents: groupCounts[tg.code] || 0,
       }))
-      .filter((g) => g.countStudents > 0); // <-- 0 bo‘lsa chiqmaydi
+      .filter((g) => g.countStudents > 0);
 
     res.json({
       status: "success",
