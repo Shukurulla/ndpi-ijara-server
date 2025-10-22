@@ -625,7 +625,7 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
     const { userId } = req.userData;
     const { status } = req.params;
 
-    // ✅ 1. Status tekshirish
+    // Faqat to‘g‘ri statuslar
     if (!["red", "yellow", "green", "blue"].includes(status)) {
       return res.status(401).json({
         status: "error",
@@ -633,7 +633,7 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // ✅ 2. Tutor topish
+    // Tutor bormi?
     const findTutor = await tutorModel.findById(userId).lean();
     if (!findTutor) {
       return res.status(400).json({
@@ -642,13 +642,13 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // ✅ 3. Tutor guruhlari (code + name)
+    // Tutor guruhlari
     const tutorGroups = findTutor.group.map((g) => ({
       code: g.code?.toString(),
       name: g.name,
     }));
 
-    // ✅ 4. Tutor permissionini olish
+    // Tutor permissioni
     const activePermission = await permissionModel
       .findOne({
         tutorId: userId,
@@ -663,13 +663,13 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // ✅ 5. Statusni queryga moslashtirish
+    // Statusni to‘g‘rilash
     const statusQuery =
       status === "blue"
         ? { $or: [{ status: "Being checked" }, { status: { $exists: false } }] }
         : { status: status };
 
-    // ✅ 6. Appartmentlarni olish
+    // Appartmentlarni olish
     const appartments = await AppartmentModel.find({
       typeAppartment: "tenant",
       permission: activePermission._id.toString(),
@@ -678,13 +678,12 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       .populate("studentId", "group")
       .lean();
 
-    // ✅ 7. Guruh bo‘yicha studentlarni sanash
+    // Guruhlar bo‘yicha hisoblash
     const groupCounts = {};
     for (const app of appartments) {
       const student = app.studentId;
-      if (student?.group?.code) {
-        // 🔹 endi group.code orqali sanaymiz
-        const studentGroupCode = student.group.code.toString();
+      if (student?.group?.id) {
+        const studentGroupCode = student.group.id.toString();
 
         if (!groupCounts[studentGroupCode]) {
           groupCounts[studentGroupCode] = 0;
@@ -693,16 +692,15 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       }
     }
 
-    // ✅ 8. Tutor guruhlari bo‘yicha natija tuzish
+    // Tutor guruhlarini natija qilib qaytarish (faqat count > 0 bo‘lsa)
     const result = tutorGroups
       .map((tg) => ({
         code: tg.code,
         groupName: tg.name,
-        countStudents: groupCounts[tg.code] || 0,
+        countStudents: groupCounts[tg.code],
       }))
-      .filter((g) => g.countStudents > 0);
+      .filter((g) => g.countStudents > 0); // <-- 0 bo‘lsa chiqmaydi
 
-    // ✅ 9. Javob
     res.json({
       status: "success",
       data: result,
