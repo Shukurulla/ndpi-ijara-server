@@ -693,13 +693,11 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
     }
 
     // Tutor guruhlarini natija qilib qaytarish (faqat count > 0 bo‘lsa)
-    const result = tutorGroups
-      .map((tg) => ({
-        code: tg.code,
-        groupName: tg.name,
-        countStudents: groupCounts[tg.code] || 0,
-      }))
-      .filter((g) => g.countStudents > 0); // <-- 0 bo‘lsa chiqmaydi
+    const result = tutorGroups.map((tg) => ({
+      code: tg.code,
+      groupName: tg.name,
+      countStudents: groupCounts[tg.code],
+    })); // <-- 0 bo‘lsa chiqmaydi
 
     res.json({
       status: "success",
