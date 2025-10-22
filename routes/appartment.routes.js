@@ -686,9 +686,9 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
         const studentGroupCode = student.group.id.toString();
 
         if (!groupCounts[studentGroupCode]) {
-          groupCounts[studentGroupCode] = new Set();
+          groupCounts[studentGroupCode] = 0;
         }
-        groupCounts[studentGroupCode].add(student._id.toString());
+        groupCounts[studentGroupCode] += 1;
       }
     }
 
@@ -697,7 +697,7 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       .map((tg) => ({
         code: tg.code,
         groupName: tg.name,
-        countStudents: groupCounts[tg.code] ? groupCounts[tg.code].size : 0,
+        countStudents: groupCounts[tg.code] || 0,
       }))
       .filter((g) => g.countStudents > 0); // <-- 0 bo‘lsa chiqmaydi
 
