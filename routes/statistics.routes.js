@@ -557,6 +557,12 @@ router.post("/statistics/faculty-data", authMiddleware, async (req, res) => {
   try {
     const { faculty } = req.body; // Filter ma'lumotlari body orqali keladi
 
+    // Process holatidagi permissionlarni olish
+    const activePermissions = await permissionModel.find({
+      status: "process",
+    });
+    const permissionIds = activePermissions.map((p) => p._id.toString());
+
     const matchStage = {
       "accommodation.name": { $ne: "O'z uyida" }, // "O'z uyida" bo'lmagan talabalar
     };
@@ -577,7 +583,19 @@ router.post("/statistics/faculty-data", authMiddleware, async (req, res) => {
       },
       {
         $addFields: {
-          hasRentedInfo: { $gt: [{ $size: "$rentedInfo" }, 0] },
+          hasRentedInfo: {
+            $gt: [
+              {
+                $size: {
+                  $filter: {
+                    input: "$rentedInfo",
+                    cond: { $in: ["$$this.permission", permissionIds] },
+                  },
+                },
+              },
+              0,
+            ],
+          },
         },
       },
       {
@@ -1155,33 +1173,36 @@ router.get("/statistics/permissions/recent", async (req, res) => {
     });
 
     const totalTenants = await AppartmentModel.countDocuments({
-      typeAppartment: "tenant",
+      permission: { $in: permissionIds },
     });
     const totalRelative = await AppartmentModel.countDocuments({
       typeAppartment: "relative",
+      permission: { $in: permissionIds },
     });
     const totalLittleHouse = await AppartmentModel.countDocuments({
       typeAppartment: "littleHouse",
+      permission: { $in: permissionIds },
     });
     const totalBedRoom = await AppartmentModel.countDocuments({
       typeAppartment: "bedroom",
+      permission: { $in: permissionIds },
     });
 
     const totalAppartments = recentAppartments.length;
     const redAppartments = await AppartmentModel.countDocuments({
-      typeAppartment: "tenant",
+      permission: { $in: permissionIds },
       status: "red",
     });
     const greenAppartments = await AppartmentModel.countDocuments({
-      typeAppartment: "tenant",
+      permission: { $in: permissionIds },
       status: "green",
     });
     const yellowAppartments = await AppartmentModel.countDocuments({
-      typeAppartment: "tenant",
+      permission: { $in: permissionIds },
       status: "yellow",
     });
     const blueAppartments = await AppartmentModel.countDocuments({
-      typeAppartment: "tenant",
+      permission: { $in: permissionIds },
       status: "Being checked",
     });
 
@@ -1204,5 +1225,116 @@ router.get("/statistics/permissions/recent", async (req, res) => {
     res.status(500).json({ status: "error", message: error.message });
   }
 });
+
+// Dashboard uchun umumiy statistika
+router.get(
+  "/statistics/dashboard/summary",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { userId, role } = req.userData;
+
+      // Process holatidagi permissionlarni olish
+      const activePermissions = await permissionModel.find({
+        status: "process",
+      });
+      const permissionIds = activePermissions.map((p) => p._id.toString());
+
+      let studentQuery = {};
+      let appartmentQuery = {
+        permission: { $in: permissionIds },
+      };
+
+      // Faculty admin uchun faqat o'z fakulteti
+      if (role === "facultyAdmin") {
+        const facultyAdmin = await facultyAdminModel.findById(userId);
+        if (!facultyAdmin) {
+          return res.status(404).json({
+            status: "error",
+            message: "Fakultet admin topilmadi",
+          });
+        }
+
+        const facultyNames = facultyAdmin.faculties.map((f) => f.name);
+        studentQuery["department.name"] = { $in: facultyNames };
+
+        // Fakultet studentlarini olish
+        const students = await StudentModel.find(studentQuery).select("_id");
+        const studentIds = students.map((s) => s._id);
+        appartmentQuery.studentId = { $in: studentIds };
+      }
+
+      // Statistikalarni parallel olish
+      const [
+        totalStudents,
+        totalAppartments,
+        tenantCount,
+        relativeCount,
+        littleHouseCount,
+        bedroomCount,
+        genderStats,
+      ] = await Promise.all([
+        StudentModel.countDocuments(studentQuery),
+        AppartmentModel.countDocuments(appartmentQuery),
+        AppartmentModel.countDocuments({
+          ...appartmentQuery,
+          typeAppartment: "tenant",
+        }),
+        AppartmentModel.countDocuments({
+          ...appartmentQuery,
+          typeAppartment: "relative",
+        }),
+        AppartmentModel.countDocuments({
+          ...appartmentQuery,
+          typeAppartment: "littleHouse",
+        }),
+        AppartmentModel.countDocuments({
+          ...appartmentQuery,
+          typeAppartment: "bedroom",
+        }),
+        StudentModel.aggregate([
+          { $match: studentQuery },
+          {
+            $group: {
+              _id: "$gender.name",
+              count: { $sum: 1 },
+            },
+          },
+        ]),
+      ]);
+
+      // Gender statistikasini formatlash
+      const genderData = {
+        Erkak: 0,
+        Ayol: 0,
+      };
+      genderStats.forEach((item) => {
+        if (item._id === "Erkak" || item._id === "Ayol") {
+          genderData[item._id] = item.count;
+        }
+      });
+
+      res.json({
+        status: "success",
+        data: {
+          totalStudents,
+          totalAppartments,
+          studentsWithAppartments: totalAppartments,
+          studentsWithoutAppartments: totalStudents - totalAppartments,
+          typeBreakdown: {
+            tenant: tenantCount,
+            relative: relativeCount,
+            littleHouse: littleHouseCount,
+            bedroom: bedroomCount,
+          },
+          genderBreakdown: genderData,
+        },
+      });
+    } catch (error) {
+      console.error("Dashboard summary error:", error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
+  }
+);
 
 export default router;

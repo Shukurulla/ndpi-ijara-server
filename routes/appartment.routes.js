@@ -664,13 +664,16 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
     }
 
     // Statusni to‘g‘rilash
-    const queryStatus = status === "blue" ? "Being checked" : status;
+    const statusQuery =
+      status === "blue"
+        ? { $or: [{ status: "Being checked" }, { status: { $exists: false } }] }
+        : { status: status };
 
     // Appartmentlarni olish
     const appartments = await AppartmentModel.find({
       typeAppartment: "tenant",
       permission: activePermission._id.toString(),
-      status: queryStatus,
+      ...statusQuery,
     })
       .populate("studentId", "group")
       .lean();
@@ -719,7 +722,15 @@ router.get(
       const { status, groupId } = req.params;
       const { userId } = req.userData;
 
-      const configStatus = status == "blue" ? "Being checked" : status;
+      const statusQuery =
+        status == "blue"
+          ? {
+              $or: [
+                { status: "Being checked" },
+                { status: { $exists: false } },
+              ],
+            }
+          : { status: status };
 
       const findActivePermission = await permissionModel
         .findOne({ status: "process", tutorId: userId })
@@ -744,7 +755,7 @@ router.get(
       // Appartmentlarni student bilan birga populate qilamiz
       const findAppartments = await AppartmentModel.find({
         permission: findActivePermission._id.toString(),
-        status: configStatus,
+        ...statusQuery,
         studentId: { $in: studentIds },
       }).select("-bedroom");
 

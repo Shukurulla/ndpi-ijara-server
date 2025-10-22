@@ -28,6 +28,10 @@ const appartmentSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    otherSmallDistrict: {
+      type: String,
+      default: null,
+    },
     typeOfAppartment: {
       type: String,
       default: null,
