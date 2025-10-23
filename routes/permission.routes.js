@@ -340,7 +340,7 @@ router.get("/clear", async (req, res) => {
   }
 });
 
-router.get("/get-student-permission/:id", async (req, res) => {
+router.get("/student-permission/:id", async (req, res) => {
   try {
     // 1. Studentni topamiz
     const findStudent = await StudentModel.findById(req.params.id).select(
