@@ -1064,7 +1064,7 @@ router.get(
           },
         },
         {
-          $match: { hasFilledForCurrentPermission: true }, // faqat process permission uchun to'ldirganlar
+          $match: { hasFilledForCurrentPermission: false }, // faqat process permission uchun to'ldirmaganlar
         },
         {
           $project: {
