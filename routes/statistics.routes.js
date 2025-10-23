@@ -1161,70 +1161,100 @@ router.post(
   }
 );
 
-router.get("/statistics/permissions/recent", async (req, res) => {
-  try {
-    const activePermissions = await permissionModel.find({
-      status: "process",
-    });
-    const permissionIds = activePermissions.map((p) => p._id.toString());
+router.get(
+  "/statistics/permissions/recent",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const { userId, role } = req.userData;
 
-    const recentAppartments = await AppartmentModel.find({
-      permission: { $in: permissionIds },
-    });
+      const activePermissions = await permissionModel.find({
+        status: "process",
+      });
+      const permissionIds = activePermissions.map((p) => p._id.toString());
 
-    const totalTenants = await AppartmentModel.countDocuments({
-      permission: { $in: permissionIds },
-    });
-    const totalRelative = await AppartmentModel.countDocuments({
-      typeAppartment: "relative",
-      permission: { $in: permissionIds },
-    });
-    const totalLittleHouse = await AppartmentModel.countDocuments({
-      typeAppartment: "littleHouse",
-      permission: { $in: permissionIds },
-    });
-    const totalBedRoom = await AppartmentModel.countDocuments({
-      typeAppartment: "bedroom",
-      permission: { $in: permissionIds },
-    });
+      let appartmentQuery = {
+        permission: { $in: permissionIds },
+      };
 
-    const totalAppartments = recentAppartments.length;
-    const redAppartments = await AppartmentModel.countDocuments({
-      permission: { $in: permissionIds },
-      status: "red",
-    });
-    const greenAppartments = await AppartmentModel.countDocuments({
-      permission: { $in: permissionIds },
-      status: "green",
-    });
-    const yellowAppartments = await AppartmentModel.countDocuments({
-      permission: { $in: permissionIds },
-      status: "yellow",
-    });
-    const blueAppartments = await AppartmentModel.countDocuments({
-      permission: { $in: permissionIds },
-      status: "Being checked",
-    });
+      // Faculty admin uchun faqat o'z fakulteti studentlarining ma'lumotlari
+      if (role === "facultyAdmin") {
+        const facultyAdmin = await facultyAdminModel.findById(userId);
+        if (!facultyAdmin) {
+          return res.status(404).json({
+            status: "error",
+            message: "Fakultet admin topilmadi",
+          });
+        }
 
-    res.json({
-      status: "success",
-      data: {
-        totalAppartments,
-        redAppartments,
-        greenAppartments,
-        yellowAppartments,
-        blueAppartments,
-        totalTenants,
-        totalRelative,
-        totalLittleHouse,
-        totalBedRoom,
-      },
-    });
-  } catch (error) {
-    console.error("Recent permissions error:", error);
-    res.status(500).json({ status: "error", message: error.message });
+        const facultyNames = facultyAdmin.faculties.map((f) => f.name);
+
+        // Fakultet studentlarini olish
+        const students = await StudentModel.find({
+          "department.name": { $in: facultyNames },
+        }).select("_id");
+
+        const studentIds = students.map((s) => s._id);
+        appartmentQuery.studentId = { $in: studentIds };
+      }
+
+      const recentAppartments = await AppartmentModel.find(appartmentQuery);
+
+      const totalTenants = await AppartmentModel.countDocuments({
+        ...appartmentQuery,
+        typeAppartment: "tenant",
+      });
+      const totalRelative = await AppartmentModel.countDocuments({
+        ...appartmentQuery,
+        typeAppartment: "relative",
+      });
+      const totalLittleHouse = await AppartmentModel.countDocuments({
+        ...appartmentQuery,
+        typeAppartment: "littleHouse",
+      });
+      const totalBedRoom = await AppartmentModel.countDocuments({
+        ...appartmentQuery,
+        typeAppartment: "bedroom",
+      });
+
+      const totalAppartments = recentAppartments.length;
+      const redAppartments = await AppartmentModel.countDocuments({
+        ...appartmentQuery,
+        status: "red",
+      });
+      const greenAppartments = await AppartmentModel.countDocuments({
+        ...appartmentQuery,
+        status: "green",
+      });
+      const yellowAppartments = await AppartmentModel.countDocuments({
+        ...appartmentQuery,
+        status: "yellow",
+      });
+      const blueAppartments = await AppartmentModel.countDocuments({
+        ...appartmentQuery,
+        status: "Being checked",
+      });
+
+      res.json({
+        status: "success",
+        data: {
+          totalAppartments,
+          redAppartments,
+          greenAppartments,
+          yellowAppartments,
+          blueAppartments,
+          totalTenants,
+          totalRelative,
+          totalLittleHouse,
+          totalBedRoom,
+        },
+      });
+    } catch (error) {
+      console.error("Recent permissions error:", error);
+      res.status(500).json({ status: "error", message: error.message });
+    }
   }
-});
+);
 
 // Dashboard uchun umumiy statistika
 router.get(
