@@ -340,4 +340,51 @@ router.get("/clear", async (req, res) => {
   }
 });
 
+router.get("/get-student-permission/:id", async (req, res) => {
+  try {
+    // 1. Studentni topamiz
+    const findStudent = await StudentModel.findById(req.params.id).select(
+      "group"
+    );
+
+    if (!findStudent || !findStudent.group || findStudent.group.length === 0) {
+      return res.status(404).json({ message: "Student yoki guruh topilmadi" });
+    }
+
+    // 2. Studentning group id ni olamiz (bu code sifatida ishlatiladi)
+    const studentGroupCode = findStudent.group[0].id;
+
+    // 3. Tutorlar orasidan shu group.code ga mosini topamiz
+    const findTutorByGroup = await tutorModel
+      .findOne({ "group.code": studentGroupCode })
+      .select("_id");
+
+    if (!findTutorByGroup) {
+      return res.status(404).json({ message: "Tutor topilmadi" });
+    }
+
+    const findPermission = await permissionModel.findOne({
+      tutorId: findTutorByGroup._id,
+      status: "process",
+    });
+
+    if (!findPermission) {
+      return res
+        .status(404)
+        .json({ message: "Jarayondagi permission topilmadi" });
+    }
+
+    // 4. Tutor ma’lumotlarini qaytaramiz
+    res.status(200).json({
+      message: "Tutor topildi",
+      tutor: findPermission,
+    });
+  } catch (error) {
+    console.error(error);
+    res
+      .status(500)
+      .json({ message: "Serverda xatolik yuz berdi", error: error.message });
+  }
+});
+
 export default router;
