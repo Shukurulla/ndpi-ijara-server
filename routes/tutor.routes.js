@@ -1016,7 +1016,24 @@ router.get(
           .json({ status: "error", message: "Bunday tutor topilmadi" });
       }
 
-      // Aggregation orqali faqat appartment yo‘q studentlar
+      // Hozirgi process holatidagi permissionlarni olish
+      const activePermissions = await permissionModel
+        .find({
+          status: "process",
+        })
+        .select("_id");
+
+      if (activePermissions.length === 0) {
+        return res.status(200).json({
+          status: "success",
+          data: [],
+          message: "Hozirda process holatidagi permissionlar mavjud emas",
+        });
+      }
+
+      const permissionIds = activePermissions.map((p) => p._id.toString());
+
+      // Aggregation orqali process permission bo'yicha to'ldirgan studentlar
       const students = await StudentModel.aggregate([
         {
           $match: { "group.id": groupId }, // faqat shu guruh studentlari
@@ -1030,7 +1047,24 @@ router.get(
           },
         },
         {
-          $match: { appartmentData: { $size: 0 } }, // faqat appartment topilmaganlar
+          $addFields: {
+            hasFilledForCurrentPermission: {
+              $gt: [
+                {
+                  $size: {
+                    $filter: {
+                      input: "$appartmentData",
+                      cond: { $in: ["$$this.permission", permissionIds] },
+                    },
+                  },
+                },
+                0,
+              ],
+            },
+          },
+        },
+        {
+          $match: { hasFilledForCurrentPermission: true }, // faqat process permission uchun to'ldirganlar
         },
         {
           $project: {
@@ -1045,6 +1079,12 @@ router.get(
             province: 1,
             specialty: 1,
             level: 1,
+            appartmentData: {
+              $filter: {
+                input: "$appartmentData",
+                cond: { $in: ["$$this.permission", permissionIds] },
+              },
+            },
           },
         },
       ]);
