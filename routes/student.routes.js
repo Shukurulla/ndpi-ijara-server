@@ -640,14 +640,7 @@ router.get("/student/search/:name", async (req, res) => {
 
     const findStudents = await StudentModel.find({
       full_name: { $regex: name, $options: "i" },
-    })
-      .select(
-        "full_name student_id_number image level group  department gender"
-      )
-      .populate("group", "name")
-      .populate("department", "name")
-      .populate("gender", "name")
-      .limit(200);
+    }).limit(200);
 
     res.status(200).json({ status: "success", data: findStudents });
   } catch (error) {
