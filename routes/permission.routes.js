@@ -370,7 +370,7 @@ router.get("/get-student-permission/:id", async (req, res) => {
     // 4. Tutor ma’lumotlarini qaytaramiz
     res.status(200).json({
       message: "Tutor topildi",
-      tutor: {
+      data: {
         tutor: findTutorByGroup,
         findPermission,
       },
