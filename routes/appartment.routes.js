@@ -702,13 +702,11 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
     }
 
     // 🔹 8. Tutor guruhlari bilan birlashtirish
-    const result = tutorGroups
-      .map((tg) => ({
-        code: tg.code,
-        groupName: tg.name,
-        countStudents: groupCounts[tg.code] || 0, // <-- String.toString() bilan taqqoslanadi
-      }))
-      .filter((g) => g.countStudents > 0);
+    const result = tutorGroups.map((tg) => ({
+      code: tg.code,
+      groupName: tg.name,
+      countStudents: groupCounts[tg.code] || 0, // <-- String.toString() bilan taqqoslanadi
+    }));
 
     // 🔹 9. Natijani qaytarish
     res.json({
@@ -766,6 +764,7 @@ router.get(
       const findAppartments = await AppartmentModel.find({
         permission: findActivePermission._id.toString(),
         ...statusQuery,
+        typeAppartment: "tenant",
         studentId: { $in: studentIds },
       }).select("-bedroom");
 
