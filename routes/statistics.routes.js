@@ -1198,42 +1198,41 @@ router.get(
         appartmentQuery.studentId = { $in: studentIds };
       }
 
-      const recentAppartments = await AppartmentModel.find(appartmentQuery);
-
-      const totalTenants = await AppartmentModel.countDocuments({
+      // Faqat tenant (ijara) ma'lumotlarini olish
+      const tenantQuery = {
         ...appartmentQuery,
         typeAppartment: "tenant",
-      });
-      const totalRelative = await AppartmentModel.countDocuments({
-        ...appartmentQuery,
-        typeAppartment: "relative",
-      });
-      const totalLittleHouse = await AppartmentModel.countDocuments({
-        ...appartmentQuery,
-        typeAppartment: "littleHouse",
-      });
-      const totalBedRoom = await AppartmentModel.countDocuments({
-        ...appartmentQuery,
-        typeAppartment: "bedroom",
-      });
+      };
 
-      const totalAppartments = recentAppartments.length;
-      const redAppartments = await AppartmentModel.countDocuments({
-        ...appartmentQuery,
+      const recentTenants = await AppartmentModel.find(tenantQuery);
+
+      const totalTenants = recentTenants.length;
+      const redTenants = await AppartmentModel.countDocuments({
+        ...tenantQuery,
         status: "red",
       });
-      const greenAppartments = await AppartmentModel.countDocuments({
-        ...appartmentQuery,
+      const greenTenants = await AppartmentModel.countDocuments({
+        ...tenantQuery,
         status: "green",
       });
-      const yellowAppartments = await AppartmentModel.countDocuments({
-        ...appartmentQuery,
+      const yellowTenants = await AppartmentModel.countDocuments({
+        ...tenantQuery,
         status: "yellow",
       });
-      const blueAppartments = await AppartmentModel.countDocuments({
-        ...appartmentQuery,
+      const blueTenants = await AppartmentModel.countDocuments({
+        ...tenantQuery,
         status: "Being checked",
       });
+
+      // Boshqa turlarni 0 ga teng qo'yish
+      const totalRelative = 0;
+      const totalLittleHouse = 0;
+      const totalBedRoom = 0;
+      const totalAppartments = totalTenants;
+      const redAppartments = redTenants;
+      const greenAppartments = greenTenants;
+      const yellowAppartments = yellowTenants;
+      const blueAppartments = blueTenants;
 
       res.json({
         status: "success",
