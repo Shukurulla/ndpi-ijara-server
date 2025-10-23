@@ -626,8 +626,6 @@ router.get("/students/all", async (req, res) => {
   try {
     // await StudentModel.deleteMany();
     const findAllStudents = await StudentModel.find().limit(200);
-    const ids = findAllStudents.map((s) => s._id.toString());
-    await StudentModel.deleteMany({ _id: { $in: ids } });
     res.status(200).json({ status: "success", data: findAllStudents });
   } catch (error) {
     res.status(500).json({ status: "success", message: error.message });
