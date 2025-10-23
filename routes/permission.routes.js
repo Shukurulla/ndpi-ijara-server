@@ -363,21 +363,17 @@ router.get("/get-student-permission/:id", async (req, res) => {
       return res.status(404).json({ message: "Tutor topilmadi" });
     }
 
-    const findPermission = await permissionModel.findOne({
-      tutorId: findTutorByGroup._id,
+    const findPermission = await permissionModel.find({
       status: "process",
     });
-
-    if (!findPermission) {
-      return res
-        .status(404)
-        .json({ message: "Jarayondagi permission topilmadi" });
-    }
 
     // 4. Tutor ma’lumotlarini qaytaramiz
     res.status(200).json({
       message: "Tutor topildi",
-      tutor: findPermission,
+      tutor: {
+        tutor: findTutorByGroup,
+        findPermission,
+      },
     });
   } catch (error) {
     console.error(error);
