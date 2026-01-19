@@ -1,9 +1,4 @@
-// ============================================
-// FILE 3: ecosystem.config.js
-// Path: /root/TutorAppServer/ecosystem.config.js
-// ============================================
-
-export default {
+module.exports = {
   apps: [
     {
       name: "tutorApp",
