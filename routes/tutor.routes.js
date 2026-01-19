@@ -50,50 +50,42 @@ router.post("/tutor/send-report-all", authMiddleware, async (req, res) => {
       });
     }
 
-    const notifications = [];
-    const updateOperations = [];
+    // Student ID larini olish
+    const studentIds = students.map((s) => s._id);
 
-    // Har bir student uchun
-    for (const student of students) {
-      // Studentning barcha appartmentlarini topish
-      const appartments = await AppartmentModel.find({
-        studentId: student._id,
-      });
+    // Bitta aggregation bilan har bir student uchun eng oxirgi appartmentni olish
+    const latestAppartments = await AppartmentModel.aggregate([
+      { $match: { studentId: { $in: studentIds } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$studentId",
+          latestAppartment: { $first: "$$ROOT" },
+        },
+      },
+    ]);
 
-      if (appartments.length > 0) {
-        // Barcha appartmentlarni eski qilish (needNew: true, current: false)
-        updateOperations.push(
-          AppartmentModel.updateMany(
-            { studentId: student._id },
-            {
-              $set: {
-                needNew: true,
-                current: false,
-              },
-            }
-          )
-        );
+    // Appartmenti bor studentlar
+    const studentsWithAppartments = latestAppartments.map((a) => a._id);
 
-        // Eng oxirgi appartmentni topish (notification uchun)
-        const latestAppartment = appartments.sort(
-          (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-        )[0];
-
-        // Notification yaratish
-        notifications.push({
-          userId: student._id,
-          message: message || "Ijara ma'lumotlarini qayta to'ldiring",
-          appartmentId: latestAppartment._id,
-          status: "red",
-          need_data: "Ijara ma'lumotlarini qayta kiritish talab qilinadi",
-          notification_type: "report",
-          isRead: false,
-        });
-      }
+    // Bitta updateMany bilan barcha appartmentlarni yangilash
+    if (studentsWithAppartments.length > 0) {
+      await AppartmentModel.updateMany(
+        { studentId: { $in: studentsWithAppartments } },
+        { $set: { needNew: true, current: false } }
+      );
     }
 
-    // Barcha update operatsiyalarini bajarish
-    await Promise.all(updateOperations);
+    // Notificationlarni tayyorlash
+    const notifications = latestAppartments.map((item) => ({
+      userId: item._id,
+      message: message || "Ijara ma'lumotlarini qayta to'ldiring",
+      appartmentId: item.latestAppartment._id,
+      status: "red",
+      need_data: "Ijara ma'lumotlarini qayta kiritish talab qilinadi",
+      notification_type: "report",
+      isRead: false,
+    }));
 
     // Notificationlarni yaratish
     if (notifications.length > 0) {
@@ -411,10 +403,16 @@ router.post("/tutor/change-password", authMiddleware, async (req, res) => {
 
 router.get("/tutor/groups", authMiddleware, async (req, res) => {
   try {
-    const findGroups = await StudentModel.find().select("group");
-    const uniqueGroups = Array.from(
-      new Map(findGroups.map((item) => [item.group.name, item.group])).values()
-    );
+    // Aggregation bilan unique guruhlarni olish (barcha studentlarni yuklamasdan)
+    const uniqueGroups = await StudentModel.aggregate([
+      {
+        $group: {
+          _id: "$group.name",
+          group: { $first: "$group" },
+        },
+      },
+      { $replaceRoot: { newRoot: "$group" } },
+    ]);
 
     res.json({ status: "success", data: uniqueGroups });
   } catch (error) {
@@ -586,16 +584,15 @@ router.put(
 
       // Fayl yuklangan bo'lsa, uni saqlaymiz
       if (req.file) {
-        // Eski rasmni o'chirish
+        // Eski rasmni o'chirish (async)
         if (findTutor.image && !findTutor.image.includes("default-icon")) {
           const oldImagePath = path.join(
             __dirname,
             "../public/images",
             findTutor.image.split("/public/images/")[1]
           );
-          if (fs.existsSync(oldImagePath)) {
-            fs.unlinkSync(oldImagePath);
-          }
+          // fs.promises bilan async o'chirish
+          fs.promises.unlink(oldImagePath).catch(() => {});
         }
         updateFields.image = `/public/images/${req.file.filename}`;
       }
@@ -887,26 +884,30 @@ router.get("/tutor/my-groups", authMiddleware, async (req, res) => {
         .json({ status: "error", message: "Bunday tutor topilmadi" });
     }
 
-    // Har bir guruh uchun studentlarni hisoblash
-    const groupsWithCounts = await Promise.all(
-      tutor.group.map(async (grp) => {
-        const students = await StudentModel.find({
-          "group.id": `${grp.code}`,
-        }).select("_id");
+    // Bitta aggregation bilan barcha guruhlar uchun studentlar sonini hisoblash
+    const groupCodes = tutor.group.map((g) => g.code.toString());
+    const studentCounts = await StudentModel.aggregate([
+      { $match: { "group.id": { $in: groupCodes } } },
+      {
+        $group: {
+          _id: { $toString: "$group.id" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
 
-        // Studentlar idlarini arrayga olish
-        const studentIds = students.map((s) => s._id.toString());
+    // Count ni map ga o'tkazish
+    const countMap = {};
+    for (const item of studentCounts) {
+      countMap[item._id] = item.count;
+    }
 
-        // Total students = studentlar soni - appartment topilganlar soni
-        const totalStudents = students.length;
-
-        return {
-          name: grp.name,
-          code: grp.code,
-          totalStudents,
-        };
-      })
-    );
+    // Natijani shakllantirish
+    const groupsWithCounts = tutor.group.map((grp) => ({
+      name: grp.name,
+      code: grp.code,
+      totalStudents: countMap[grp.code.toString()] || 0,
+    }));
 
     res.status(200).json({ status: "success", data: groupsWithCounts });
   } catch (error) {
@@ -923,7 +924,7 @@ router.get(
       const { userId } = req.userData;
 
       // Fakultet admin profilini olish
-      const facultyAdmin = await facultyAdminModel.findById(userId);
+      const facultyAdmin = await facultyAdminModel.findById(userId).lean();
       if (!facultyAdmin) {
         return res.status(401).json({
           status: "error",
@@ -933,59 +934,51 @@ router.get(
 
       const facultyNames = facultyAdmin.faculties.map((f) => f.name);
 
-      // Fakultetlardagi guruhlarni olish
-      const allGroups = [];
-      for (const facultyName of facultyNames) {
-        const students = await StudentModel.find({
-          "department.name": facultyName,
-        }).select("group");
+      // Bitta aggregation bilan barcha unique guruhlarni olish
+      const allGroups = await StudentModel.aggregate([
+        { $match: { "department.name": { $in: facultyNames } } },
+        {
+          $group: {
+            _id: { name: "$group.name", id: "$group.id" },
+            educationLang: { $first: "$group.educationLang" },
+            faculty: { $first: "$department.name" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            id: "$_id.id",
+            name: "$_id.name",
+            educationLang: { $ifNull: ["$educationLang", { name: "O'zbek" }] },
+            faculty: 1,
+          },
+        },
+      ]);
 
-        // Unique guruhlarni olish
-        const uniqueGroups = [];
-        const seen = new Set();
+      // Bitta query bilan barcha tutorlarni olish
+      const groupIds = allGroups.map((g) => g.id.toString());
+      const tutors = await tutorModel
+        .find({
+          "group.code": { $in: groupIds },
+          facultyAdmin: userId,
+        })
+        .select("name group")
+        .lean();
 
-        students.forEach((student) => {
-          if (student.group && student.group.name) {
-            const groupKey = `${student.group.name}_${student.group.id}`;
-            if (!seen.has(groupKey)) {
-              seen.add(groupKey);
-              uniqueGroups.push({
-                id: student.group.id,
-                name: student.group.name,
-                educationLang: student.group.educationLang || {
-                  name: "O'zbek",
-                },
-                faculty: facultyName,
-              });
-            }
-          }
-        });
-
-        allGroups.push(...uniqueGroups);
+      // Tutor map yaratish (group.code -> tutor)
+      const tutorMap = {};
+      for (const tutor of tutors) {
+        for (const grp of tutor.group) {
+          tutorMap[grp.code.toString()] = { id: tutor._id, name: tutor.name };
+        }
       }
 
-      // Har bir guruh uchun tutor assignment statusini tekshirish
-      const groupsWithAssignment = await Promise.all(
-        allGroups.map(async (group) => {
-          const existingTutor = await tutorModel
-            .findOne({
-              "group.code": group.id.toString(),
-              facultyAdmin: userId,
-            })
-            .select("name");
-
-          return {
-            ...group,
-            isAssigned: !!existingTutor,
-            assignedToTutor: existingTutor
-              ? {
-                  id: existingTutor._id,
-                  name: existingTutor.name,
-                }
-              : null,
-          };
-        })
-      );
+      // Natijani shakllantirish
+      const groupsWithAssignment = allGroups.map((group) => ({
+        ...group,
+        isAssigned: !!tutorMap[group.id.toString()],
+        assignedToTutor: tutorMap[group.id.toString()] || null,
+      }));
 
       res.json({
         status: "success",

@@ -43,4 +43,10 @@ const tutorSchema = new mongoose.Schema(
 
 const tutorModel = mongoose.model("tutor", tutorSchema);
 
+// Indexes for frequently queried fields
+tutorModel.collection.createIndex({ login: 1 }); // Login queries
+tutorModel.collection.createIndex({ facultyAdmin: 1 }); // Admin filtering
+tutorModel.collection.createIndex({ "group.code": 1 }); // Group lookups
+tutorModel.collection.createIndex({ facultyAdmin: 1, "group.code": 1 }); // Compound index
+
 export default tutorModel;

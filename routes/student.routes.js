@@ -125,22 +125,18 @@ router.post("/student/sign", async (req, res) => {
 
     let findStudent = students[0] || null;
 
-    // Agar topilmasa, alternativ usul
+    // Agar topilmasa, alternativ usul - indexed query bilan
     if (!findStudent) {
       console.log("⚠️ Aggregation ishlamadi, alternativ qidiruv...");
 
-      const allStudents = await StudentModel.find()
-        .select("student_id_number")
-        .lean();
-
-      const foundStudent = allStudents.find((s) => {
-        const studentId = s.student_id_number;
-        return studentId == login || String(studentId) === String(login);
-      });
-
-      if (foundStudent) {
-        findStudent = await StudentModel.findById(foundStudent._id).lean();
-      }
+      // Direct query bilan qidirish (index ishlatadi)
+      findStudent = await StudentModel.findOne({
+        $or: [
+          { student_id_number: login },
+          { student_id_number: parseInt(login) },
+          { student_id_number: login.toString() },
+        ],
+      }).lean();
     }
 
     // 3️⃣ Agar HEMIS da bor lekin local bazada yo'q bo'lsa
@@ -624,11 +620,23 @@ router.get("/students/stats", authMiddleware, async (req, res) => {
 
 router.get("/students/all", async (req, res) => {
   try {
-    // await StudentModel.deleteMany();
-    const findAllStudents = await StudentModel.find().limit(200);
-    res.status(200).json({ status: "success", data: findAllStudents });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 200;
+    const skip = (page - 1) * limit;
+
+    const findAllStudents = await StudentModel.find()
+      .skip(skip)
+      .limit(limit)
+      .lean();
+    const total = await StudentModel.countDocuments();
+
+    res.status(200).json({
+      status: "success",
+      data: findAllStudents,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
   } catch (error) {
-    res.status(500).json({ status: "success", message: error.message });
+    res.status(500).json({ status: "error", message: error.message });
   }
 });
 
@@ -636,9 +644,12 @@ router.get("/student/search/:name", async (req, res) => {
   try {
     const { name } = req.params;
 
+    // Limit va lean bilan optimizatsiya
     const findStudents = await StudentModel.find({
       full_name: { $regex: name, $options: "i" },
-    }).limit(200);
+    })
+      .limit(50)
+      .lean();
 
     res.status(200).json({ status: "success", data: findStudents });
   } catch (error) {
@@ -658,15 +669,13 @@ router.get("/students/search", async (req, res) => {
       return res.status(200).json({ status: "success", data: [] });
     }
 
-    // Case-insensitive search by full_name
+    // lean() bilan optimizatsiya, populate olib tashlandi (nested objectlar)
     const students = await StudentModel.find({
       full_name: { $regex: q, $options: "i" },
     })
       .select("full_name image level group department gender")
-      .populate("group", "name")
-      .populate("department", "name")
-      .populate("gender", "name")
-      .limit(20);
+      .limit(20)
+      .lean();
 
     res.status(200).json({ status: "success", data: students });
   } catch (error) {

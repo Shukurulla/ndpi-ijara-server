@@ -29,7 +29,7 @@ router.post("/create", async (req, res) => {
 router.get("/my-messages", authMiddleware, async (req, res) => {
   try {
     const { userId } = req.userData;
-    const findTutor = await tutorModel.findById(userId);
+    const findTutor = await tutorModel.findById(userId).select("_id").lean();
 
     if (!findTutor) {
       return res
@@ -37,14 +37,22 @@ router.get("/my-messages", authMiddleware, async (req, res) => {
         .json({ status: "error", message: "Bunday tutor topilmadi" });
     }
 
-    const findMessages = await tutorNotificationModel.find({ tutorId: userId });
+    const findMessages = await tutorNotificationModel
+      .find({ tutorId: userId })
+      .lean();
+
+    // Unread count ni DB da hisoblash
+    const unreads = await tutorNotificationModel.countDocuments({
+      tutorId: userId,
+      isRead: false,
+    });
 
     res.status(200).json({
       status: "success",
       data: {
         messages: findMessages,
-        total: findMessages.lenght,
-        unreads: findMessages.filter((c) => c.isRead == false).length,
+        total: findMessages.length, // typo tuzatildi: lenght -> length
+        unreads,
       },
     });
   } catch (error) {
@@ -55,7 +63,7 @@ router.get("/my-messages", authMiddleware, async (req, res) => {
 router.post("/read-all", async (req, res) => {
   try {
     const { tutorId } = req.body;
-    const findTutor = await tutorModel.findById(tutorId);
+    const findTutor = await tutorModel.findById(tutorId).select("_id").lean();
 
     if (!findTutor) {
       return res
@@ -63,8 +71,14 @@ router.post("/read-all", async (req, res) => {
         .json({ status: "error", message: "Bunday tutor topilmadi" });
     }
 
-    await tutorNotificationModel.updateMany(tutorId, { isRead: true });
-    const notifications = await tutorNotificationModel.find({ tutorId });
+    // updateMany sintaksisi tuzatildi: birinchi argument filter object bo'lishi kerak
+    await tutorNotificationModel.updateMany(
+      { tutorId },
+      { $set: { isRead: true } }
+    );
+    const notifications = await tutorNotificationModel
+      .find({ tutorId })
+      .lean();
     res.status(200).json({ status: "success", data: notifications });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });

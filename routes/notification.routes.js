@@ -112,27 +112,32 @@ router.delete("/notification/:id", authMiddleware, async (req, res) => {
 router.get("/notification/push/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    const findStudent = await StudentModel.findById(userId);
+    const findStudent = await StudentModel.findById(userId).select("_id").lean();
     if (!findStudent) {
       return res.status(400).json({
         status: "error",
         message: "Bunday student topilmadi",
       });
     }
+    // Sort va lean bilan optimizatsiya
     const findNotifications = await NotificationModel.find({
       userId,
       notification_type: "push",
-    });
+    })
+      .sort({ createdAt: -1 })
+      .lean();
 
-    const allNotifications = findNotifications.length;
-    const unreadNotifications = findNotifications.filter(
-      (c) => c.isRead !== true
-    ).length;
+    // Unread count ni DB da hisoblash
+    const unreadNotifications = await NotificationModel.countDocuments({
+      userId,
+      notification_type: "push",
+      isRead: { $ne: true },
+    });
 
     res.json({
       status: "success",
-      data: findNotifications.reverse(),
-      length: allNotifications,
+      data: findNotifications,
+      length: findNotifications.length,
       unread: unreadNotifications,
     });
   } catch (error) {
@@ -142,7 +147,7 @@ router.get("/notification/push/:userId", async (req, res) => {
 router.get("/notification/report/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    const findStudent = await StudentModel.findById(userId);
+    const findStudent = await StudentModel.findById(userId).select("_id").lean();
     if (!findStudent) {
       return res.status(400).json({
         status: "error",
@@ -150,19 +155,23 @@ router.get("/notification/report/:userId", async (req, res) => {
       });
     }
 
+    // lean() bilan optimizatsiya
     const findNotifications = await NotificationModel.find({
       userId,
       notification_type: "report",
+    }).lean();
+
+    // Unread count ni DB da hisoblash
+    const unreadNotifications = await NotificationModel.countDocuments({
+      userId,
+      notification_type: "report",
+      isRead: { $ne: true },
     });
-    const allNotifications = findNotifications.length;
-    const unreadNotifications = findNotifications.filter(
-      (c) => c.isRead != true
-    ).length;
 
     res.json({
       status: "success",
       data: findNotifications,
-      length: allNotifications,
+      length: findNotifications.length,
       unread: unreadNotifications,
     });
   } catch (error) {
@@ -176,31 +185,22 @@ router.get("/notification/report/:userId", async (req, res) => {
 router.put("/notification/report/:userId/read", async (req, res) => {
   try {
     const { userId } = req.params;
-    const findStudent = await StudentModel.findById(userId);
+    const findStudent = await StudentModel.findById(userId).select("_id").lean();
     if (!findStudent) {
       return res.status(400).json({
         status: "error",
         message: "Bunday student topilmadi",
       });
     }
-    const findNotifications = await NotificationModel.find({
+    // Bitta updateMany bilan barcha notificationlarni yangilash (loop o'rniga)
+    await NotificationModel.updateMany(
+      { userId, notification_type: "report" },
+      { $set: { isRead: true } }
+    );
+    const findNewNotifications = await NotificationModel.find({
       userId,
       notification_type: "report",
-    });
-    for (let i = 0; i < findNotifications.length; i++) {
-      await NotificationModel.findByIdAndUpdate(
-        findNotifications[i]._id,
-        {
-          $set: {
-            isRead: true,
-          },
-        },
-        {
-          new: true,
-        }
-      );
-    }
-    const findNewNotifications = await NotificationModel.find({ studentId });
+    }).lean();
     res.json({ status: "success", data: findNewNotifications });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
@@ -209,31 +209,22 @@ router.put("/notification/report/:userId/read", async (req, res) => {
 router.put("/notification/push/:userId/read", async (req, res) => {
   try {
     const { userId } = req.params;
-    const findStudent = await StudentModel.findById(userId);
+    const findStudent = await StudentModel.findById(userId).select("_id").lean();
     if (!findStudent) {
       return res.status(400).json({
         status: "error",
         message: "Bunday student topilmadi",
       });
     }
-    const findNotifications = await NotificationModel.find({
+    // Bitta updateMany bilan barcha notificationlarni yangilash (loop o'rniga)
+    await NotificationModel.updateMany(
+      { userId, notification_type: "push" },
+      { $set: { isRead: true } }
+    );
+    const findNewNotifications = await NotificationModel.find({
       userId,
       notification_type: "push",
-    });
-    for (let i = 0; i < findNotifications.length; i++) {
-      await NotificationModel.findByIdAndUpdate(
-        findNotifications[i]._id,
-        {
-          $set: {
-            isRead: true,
-          },
-        },
-        {
-          new: true,
-        }
-      );
-    }
-    const findNewNotifications = await NotificationModel.find({ studentId });
+    }).lean();
     res.json({ status: "success", data: findNewNotifications });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });

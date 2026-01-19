@@ -39,10 +39,15 @@ const notificationSchema = new mongoose.Schema(
 
 const NotificationModel = mongoose.model("notification", notificationSchema);
 
+// Indexes for frequently queried fields
 NotificationModel.collection.createIndex({
   userId: 1,
   notification_type: 1,
   status: 1,
 });
+NotificationModel.collection.createIndex({ userId: 1 }); // User notifications
+NotificationModel.collection.createIndex({ isRead: 1 }); // Unread count
+NotificationModel.collection.createIndex({ appartmentId: 1 }); // Apartment notifications
+NotificationModel.collection.createIndex({ userId: 1, isRead: 1 }); // Compound for unread
 
 export default NotificationModel;

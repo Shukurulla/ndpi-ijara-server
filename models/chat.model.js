@@ -28,4 +28,11 @@ const ChatSchema = new mongoose.Schema(
   }
 );
 
-export default mongoose.model("chat", ChatSchema);
+const chatModel = mongoose.model("chat", ChatSchema);
+
+// Indexes for frequently queried fields
+chatModel.collection.createIndex({ tutorId: 1 }); // Tutor messages lookup
+chatModel.collection.createIndex({ "groups.id": 1 }); // Group messages lookup
+chatModel.collection.createIndex({ createdAt: -1 }); // Sorting by date
+
+export default chatModel;

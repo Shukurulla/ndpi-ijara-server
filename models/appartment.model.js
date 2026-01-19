@@ -166,6 +166,14 @@ const appartmentSchema = new mongoose.Schema(
 
 const AppartmentModel = mongoose.model("appartment", appartmentSchema);
 
-AppartmentModel.collection.createIndex({ permission: 1, studentId: 1 });
+// Indexes for frequently queried fields
+AppartmentModel.collection.createIndex({ permission: 1, studentId: 1 }); // Compound
+AppartmentModel.collection.createIndex({ studentId: 1 }); // Student lookups
+AppartmentModel.collection.createIndex({ status: 1 }); // Status filtering
+AppartmentModel.collection.createIndex({ typeAppartment: 1 }); // Type filtering
+AppartmentModel.collection.createIndex({ current: 1 }); // Current filter
+AppartmentModel.collection.createIndex({ studentId: 1, current: 1, needNew: 1 }); // Common query
+AppartmentModel.collection.createIndex({ permission: 1 }); // Permission lookups
+AppartmentModel.collection.createIndex({ createdAt: -1 }); // Sorting by date
 
 export default AppartmentModel;

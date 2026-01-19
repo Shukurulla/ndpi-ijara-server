@@ -23,4 +23,9 @@ const adsSchema = new mongoose.Schema(
   }
 );
 
-export default mongoose.model("ads", adsSchema);
+const adsModel = mongoose.model("ads", adsSchema);
+
+// Index for sorting by date
+adsModel.collection.createIndex({ createdAt: -1 });
+
+export default adsModel;

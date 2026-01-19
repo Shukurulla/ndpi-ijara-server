@@ -149,6 +149,13 @@ const studentSchema = new mongoose.Schema({
 });
 
 const StudentModel = mongoose.model("student", studentSchema);
+
+// Indexes for frequently queried fields
 StudentModel.collection.createIndex({ "group.id": 1 });
+StudentModel.collection.createIndex({ student_id_number: 1 }); // Login queries
+StudentModel.collection.createIndex({ "group.name": 1 }); // Group filtering
+StudentModel.collection.createIndex({ "department.name": 1 }); // Faculty filtering
+StudentModel.collection.createIndex({ "province.name": 1 }); // Statistics filters
+StudentModel.collection.createIndex({ full_name: "text" }); // Text search
 
 export default StudentModel;

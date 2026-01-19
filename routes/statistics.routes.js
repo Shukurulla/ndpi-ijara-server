@@ -487,8 +487,18 @@ router.get("/appartment/student-info/:id", async (req, res) => {
 
 router.get("/statistics/students/all", async (req, res) => {
   try {
-    const students = await StudentModel.find();
-    res.json({ status: "success", data: students });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 100;
+    const skip = (page - 1) * limit;
+
+    const students = await StudentModel.find().skip(skip).limit(limit).lean();
+    const total = await StudentModel.countDocuments();
+
+    res.json({
+      status: "success",
+      data: students,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
   } catch (error) {
     res.json({ status: "error", message: error.message });
   }
@@ -507,42 +517,45 @@ router.post(
       if (province) studentFilter["province.name"] = province;
       if (course) studentFilter["level.name"] = course;
 
-      // Studentlarni topish
-      let targetStudents = [];
-      if (province || course) {
-        targetStudents = await StudentModel.find(studentFilter, "_id");
-      } else {
-        targetStudents = await StudentModel.find({}, "_id");
-      }
+      // Aggregation bilan optimizatsiya (N+1 muammosi hal qilindi)
+      const pipeline = [
+        // 1. Studentlarni filter qilish
+        { $match: Object.keys(studentFilter).length > 0 ? studentFilter : {} },
+        // 2. Appartmentlar bilan join
+        {
+          $lookup: {
+            from: "appartments",
+            let: { studentId: "$_id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$studentId", "$$studentId"] },
+                  ...(status ? { status } : {}),
+                  ...(smallDistrict ? { smallDistrict } : {}),
+                },
+              },
+              { $sort: { createdAt: -1 } },
+              { $limit: 1 },
+              { $project: { location: 1, status: 1 } },
+            ],
+            as: "latestAppartment",
+          },
+        },
+        // 3. Faqat appartmenti borlarni olish
+        { $match: { "latestAppartment.0": { $exists: true } } },
+        // 4. Appartmentni unwind qilish
+        { $unwind: "$latestAppartment" },
+        // 5. "Being checked" ni filter qilish
+        { $match: { "latestAppartment.status": { $ne: "Being checked" } } },
+        // 6. Faqat kerakli fieldlarni olish
+        { $replaceRoot: { newRoot: "$latestAppartment" } },
+      ];
 
-      if (targetStudents.length === 0) {
-        return res.json({
-          status: "success",
-          data: [],
-        });
-      }
-
-      // Har bir student uchun eng oxirgi appartmentni topish
-      const filteredAppartments = [];
-      for (const student of targetStudents) {
-        let appartmentFilter = { studentId: student._id };
-
-        // Appartment filter qo'shish
-        if (status) appartmentFilter.status = status;
-        if (smallDistrict) appartmentFilter.smallDistrict = smallDistrict;
-
-        const latestAppartment = await AppartmentModel.findOne(appartmentFilter)
-          .select("location status")
-          .sort({ createdAt: -1 });
-
-        if (latestAppartment) {
-          filteredAppartments.push(latestAppartment);
-        }
-      }
+      const filteredAppartments = await StudentModel.aggregate(pipeline);
 
       res.json({
         status: "success",
-        data: filteredAppartments.filter((c) => c.status !== "Being checked"),
+        data: filteredAppartments,
       });
     } catch (error) {
       console.error("Xatolik:", error);

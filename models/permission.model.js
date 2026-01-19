@@ -30,4 +30,11 @@ const permissionSchema = new mongoose.Schema(
   }
 );
 
-export default mongoose.model("permission", permissionSchema);
+const permissionModel = mongoose.model("permission", permissionSchema);
+
+// Indexes for frequently queried fields
+permissionModel.collection.createIndex({ tutorId: 1 }); // Tutor permissions lookup
+permissionModel.collection.createIndex({ status: 1 }); // Status filtering
+permissionModel.collection.createIndex({ tutorId: 1, status: 1 }); // Compound index
+
+export default permissionModel;

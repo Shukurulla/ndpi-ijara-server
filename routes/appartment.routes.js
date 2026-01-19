@@ -15,7 +15,45 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+router.get("/appartment-types-count", async (req, res) => {
+  try {
+    const permissions = await permissionModel.find({ status: "process" });
+    const permissionIds = permissions.map((p) => p._id.toString());
+    const tenantCount = await AppartmentModel.countDocuments({
+      typeAppartment: "tenant",
+      permission: { $in: permissionIds },
+    });
+    const relativeCount = await AppartmentModel.countDocuments({
+      typeAppartment: "relative",
+      permission: { $in: permissionIds },
+    });
+    const littleHouseCount = await AppartmentModel.countDocuments({
+      typeAppartment: "littleHouse",
+      permission: { $in: permissionIds },
+    });
+    const bedroomCount = await AppartmentModel.countDocuments({
+      typeAppartment: "bedroom",
+      permission: { $in: permissionIds },
+    });
+    const total = await AppartmentModel.countDocuments({
+      permission: { $in: permissionIds },
+    });
+    
 
+    res.status(200).json({
+      status: "success",
+      data: {
+        tenant: tenantCount,
+        relative: relativeCount,
+        littleHouse: littleHouseCount,
+        bedroom: bedroomCount,
+      },
+      total: total,
+    });
+  } catch (error) {
+    res.status(500).json({ status: "error", message: error.message });
+  }
+});
 router.post(
   "/appartment/create",
   authMiddleware,
@@ -564,11 +602,9 @@ router.get("/name/:name", async (req, res) => {
 
 router.get("/appartment/all-delete", async (req, res) => {
   try {
-    const appartments = await AppartmentModel.find();
-    for (let i = 0; i < appartments.length; i++) {
-      await AppartmentModel.findByIdAndDelete(appartments[i]._id);
-    }
-    res.json(appartments);
+    // deleteMany bilan bitta query da o'chirish (loop o'rniga)
+    const result = await AppartmentModel.deleteMany({});
+    res.json({ message: "success", deletedCount: result.deletedCount });
   } catch (error) {
     res.json({ message: error.message });
   }
@@ -828,15 +864,15 @@ router.put(
       // o‘zgargan rasm turlarini aniqlash uchun massiv
       const changedFields = [];
 
-      // Rasmni yangilash uchun funksiya
+      // Rasmni yangilash uchun funksiya (async file delete)
       const handleImageUpdate = (fieldName, existingUrl) => {
         if (req.files[fieldName] && req.files[fieldName][0]) {
-          // Eski rasmni o‘chirish
+          // Eski rasmni o'chirish (async, blocking emas)
           if (existingUrl) {
             const oldPath = path.join(__dirname, "..", existingUrl);
-            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+            fs.promises.unlink(oldPath).catch(() => {});
           }
-          // O‘zgargan rasm nomini qayd etamiz
+          // O'zgargan rasm nomini qayd etamiz
           changedFields.push(fieldName);
           // Yangi rasm URL
           return `/public/images/${req.files[fieldName][0].filename}`;
@@ -939,10 +975,8 @@ router.put(
 
 router.delete("/appartment/clear", authMiddleware, async (req, res) => {
   try {
-    const appartments = await AppartmentModel.find();
-    for (let i = 0; i < appartments.length; i++) {
-      await AppartmentModel.findByIdAndDelete(appartments[i]._id);
-    }
+    // deleteMany bilan bitta query da o'chirish (loop o'rniga)
+    await AppartmentModel.deleteMany({});
     res
       .status(200)
       .json({ status: "success", message: "Ijara malumotlari tozalandi" });
@@ -957,16 +991,18 @@ router.get(
   async (req, res) => {
     try {
       const { type, groupId } = req.params;
-      const students = await StudentModel.find({ "group.id": groupId }).select(
-        "_id"
-      );
-      let appartments = [];
-      for (let i = 0; i < students.length; i++) {
-        const findAppartments = await AppartmentModel.find({
-          typeAppartment: type,
-        });
-        appartments = await [...appartments, findAppartments];
-      }
+      // Bitta query bilan studentlarni olish va ularning appartmentlarini topish
+      const students = await StudentModel.find({ "group.id": groupId })
+        .select("_id")
+        .lean();
+      const studentIds = students.map((s) => s._id);
+
+      // Bitta query bilan barcha appartmentlarni olish
+      const appartments = await AppartmentModel.find({
+        typeAppartment: type,
+        studentId: { $in: studentIds },
+      }).lean();
+
       res.status(200).json({ status: "success", data: appartments });
     } catch (error) {
       res.status(500).json({ status: "error", message: error.message });
@@ -976,40 +1012,74 @@ router.get(
 
 router.get("/appartment/count-by-type", async (req, res) => {
   try {
-    const permissions = await permissionModel.find({ status: "process" });
+    const permissions = await permissionModel
+      .find({ status: "process" })
+      .select("_id")
+      .lean();
     const permissionIds = permissions.map((p) => p._id.toString());
 
-    const appartments = await AppartmentModel.find({
-      permission: { $in: permissionIds },
-    });
+    // Aggregation bilan barcha countlarni bitta query da olish
+    const stats = await AppartmentModel.aggregate([
+      { $match: { permission: { $in: permissionIds } } },
+      {
+        $facet: {
+          tenantTotal: [
+            { $match: { typeAppartment: "tenant" } },
+            { $count: "count" },
+          ],
+          tenantRed: [
+            { $match: { typeAppartment: "tenant", status: "red" } },
+            { $count: "count" },
+          ],
+          tenantYellow: [
+            { $match: { typeAppartment: "tenant", status: "yellow" } },
+            { $count: "count" },
+          ],
+          tenantGreen: [
+            { $match: { typeAppartment: "tenant", status: "green" } },
+            { $count: "count" },
+          ],
+          tenantBlue: [
+            { $match: { typeAppartment: "tenant", status: "Being checked" } },
+            { $count: "count" },
+          ],
+          relative: [
+            { $match: { typeAppartment: "relative" } },
+            { $count: "count" },
+          ],
+          littleHouse: [
+            { $match: { typeAppartment: "littleHouse" } },
+            { $count: "count" },
+          ],
+          bedroom: [
+            { $match: { typeAppartment: "bedroom" } },
+            { $count: "count" },
+          ],
+        },
+      },
+    ]);
 
+    const s = stats[0];
+    // Eski format bilan mos response (frontend bilan moslik uchun)
     const data = {
       tenant: {
-        total: appartments.filter((a) => a.typeAppartment === "tenant").length,
-        red: appartments.filter(
-          (a) => a.typeAppartment === "tenant" && a.status === "red"
-        ).length,
-        yellow: appartments.filter(
-          (a) => a.typeAppartment === "tenant" && a.status === "yellow"
-        ).length,
-        green: appartments.filter(
-          (a) => a.typeAppartment === "tenant" && a.status === "green"
-        ).length,
-        blue: appartments.filter(
-          (a) => a.typeAppartment === "tenant" && a.status === "Being checked"
-        ).length,
+        total: s.tenantTotal[0]?.count || 0,
+        red: s.tenantRed[0]?.count || 0,
+        yellow: s.tenantYellow[0]?.count || 0,
+        green: s.tenantGreen[0]?.count || 0,
+        blue: s.tenantBlue[0]?.count || 0,
       },
-      relative: appartments.filter((a) => a.typeAppartment === "relative")
-        .length,
-      littleHouse: appartments.filter((a) => a.typeAppartment === "littleHouse")
-        .length,
-      bedroom: appartments.filter((a) => a.typeAppartment === "bedroom").length,
+      relative: s.relative[0]?.count || 0,
+      littleHouse: s.littleHouse[0]?.count || 0,
+      bedroom: s.bedroom[0]?.count || 0,
     };
 
     res.status(200).json({
       status: "success",
       data,
-      total: data.tenant + data.relative + data.littleHouse + data.bedroom || 0,
+      total:
+        data.tenant.total + data.relative + data.littleHouse + data.bedroom ||
+        0,
     });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });

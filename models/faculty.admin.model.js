@@ -51,5 +51,12 @@ const facultyAdminSchema = new mongoose.Schema(
 // Modelni tekshirish va export qilish
 const modelName = "facultyAdmin";
 
-export default mongoose.models[modelName] ||
-  mongoose.model(modelName, facultyAdminSchema);
+const facultyAdminModel =
+  mongoose.models[modelName] || mongoose.model(modelName, facultyAdminSchema);
+
+// Indexes for frequently queried fields
+facultyAdminModel.collection.createIndex({ login: 1 }); // Login queries
+facultyAdminModel.collection.createIndex({ "faculties.name": 1 }); // Faculty lookups
+facultyAdminModel.collection.createIndex({ "faculties.code": 1 }); // Code lookups
+
+export default facultyAdminModel;
