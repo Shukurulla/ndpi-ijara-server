@@ -131,6 +131,7 @@ const allowedOrigins = [
   "https://admin.tutorapp.kerek.uz",
   "https://student.tutorapp.kerek.uz",
   "http://127.0.0.1:8080",
+  "http://localhost:8080",
   process.env.NODE_ENV !== "production" ? "http://localhost:5173" : null,
   process.env.NODE_ENV !== "production" ? "http://localhost:5175" : null,
   process.env.NODE_ENV !== "production" ? "http://localhost:5176" : null,
