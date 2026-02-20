@@ -350,12 +350,10 @@ router.post("/tutor/change-password", authMiddleware, async (req, res) => {
     }
 
     if (newPassword.length < 6) {
-      return res
-        .status(400)
-        .json({
-          status: "error",
-          message: "Yangi parol kamida 6 belgidan iborat bo'lishi kerak",
-        });
+      return res.status(400).json({
+        status: "error",
+        message: "Yangi parol kamida 6 belgidan iborat bo'lishi kerak",
+      });
     }
 
     const isMatch = await bcrypt.compare(currentPassword, findTutor.password);
