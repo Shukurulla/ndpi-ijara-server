@@ -84,7 +84,7 @@ const studentSchema = new mongoose.Schema({
     name: String,
   },
   department: {
-    id: mongoose.Schema.Types.Mixed, // Number yoki String bo'lishi mumkin
+    id: mongoose.Schema.Types.Mixed,
     name: String,
     code: String,
     structureType: {
@@ -102,12 +102,12 @@ const studentSchema = new mongoose.Schema({
     active: Boolean,
   },
   specialty: {
-    id: mongoose.Schema.Types.Mixed, // Bu yerda Mixed type ishlatamiz
+    id: mongoose.Schema.Types.Mixed,
     code: String,
     name: String,
   },
   group: {
-    id: mongoose.Schema.Types.Mixed, // Bu ham Mixed type
+    id: mongoose.Schema.Types.Mixed,
     name: String,
     educationLang: {
       code: String,
@@ -119,7 +119,7 @@ const studentSchema = new mongoose.Schema({
     name: String,
   },
   semester: {
-    id: mongoose.Schema.Types.Mixed, // Bu ham Mixed type
+    id: mongoose.Schema.Types.Mixed,
     code: String,
     name: String,
   },
@@ -150,12 +150,10 @@ const studentSchema = new mongoose.Schema({
 
 const StudentModel = mongoose.model("student", studentSchema);
 
-// Indexes for frequently queried fields
-StudentModel.collection.createIndex({ "group.id": 1 });
-StudentModel.collection.createIndex({ student_id_number: 1 }); // Login queries
-StudentModel.collection.createIndex({ "group.name": 1 }); // Group filtering
-StudentModel.collection.createIndex({ "department.name": 1 }); // Faculty filtering
-StudentModel.collection.createIndex({ "province.name": 1 }); // Statistics filters
-StudentModel.collection.createIndex({ full_name: "text" }); // Text search
+studentSchema.index({ "group.id": 1 });
+studentSchema.index({ "group.name": 1 });
+studentSchema.index({ "department.name": 1 });
+studentSchema.index({ "province.name": 1 });
+studentSchema.index({ full_name: "text" });
 
 export default StudentModel;

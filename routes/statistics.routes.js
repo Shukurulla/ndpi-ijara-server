@@ -3,6 +3,7 @@ import authMiddleware from "../middlewares/auth.middleware.js";
 import adminModel from "../models/admin.model.js";
 import AppartmentModel from "../models/appartment.model.js";
 import StudentModel from "../models/student.model.js";
+import FacultyModel from "../models/faculty.model.js";
 import facultyAdminModel from "../models/faculty.admin.model.js";
 import {
   requireFacultyAdmin,
@@ -26,7 +27,7 @@ function getStudentCountByLevel(data) {
       }
       result[course] += Object.values(students).reduce(
         (sum, count) => sum + count,
-        0
+        0,
       );
     });
   });
@@ -99,7 +100,7 @@ router.get("/statistics/appartments/map", authMiddleware, async (req, res) => {
       console.log(
         `Faculty admin: ${facultyNames.join(", ")} - ${
           studentIds.length
-        } students`
+        } students`,
       );
     }
 
@@ -108,7 +109,7 @@ router.get("/statistics/appartments/map", authMiddleware, async (req, res) => {
       .sort({ createdAt: -1 });
 
     console.log(
-      `Found ${allAppartments.length} valid apartments for role: ${role}`
+      `Found ${allAppartments.length} valid apartments for role: ${role}`,
     );
 
     // Har bir student uchun eng oxirgi appartmentni olish
@@ -215,7 +216,7 @@ router.get(
       console.error("Faculty admin statistics error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 // Faculty admin uchun ijara statistikasi
@@ -273,7 +274,7 @@ router.get(
       console.error("Faculty admin appartments statistics error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 router.get(
@@ -284,14 +285,14 @@ router.get(
       const { userId } = req.userData;
       isAdmin(userId, res);
       const { data } = await axios.get(
-        `https://student.karsu.uz/rest/v1/public/stat-student`
+        `https://student.ndpi.uz/rest/v1/public/stat-student`,
       );
       const totalStudents = getStudentCountByLevel(data.data);
       res.status(200).json({ status: "success", data: totalStudents });
     } catch (error) {
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 router.get(
@@ -360,7 +361,7 @@ router.get(
       console.error("Boiler statistics error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 router.get(
@@ -439,7 +440,7 @@ router.get(
       console.error("SmallDistrict statistics error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 router.get("/statistics/region", authMiddleware, async (req, res) => {
@@ -447,7 +448,7 @@ router.get("/statistics/region", authMiddleware, async (req, res) => {
     const { userId } = req.userData;
     isAdmin(userId, res);
     const { data } = await axios.get(
-      `https://student.karsu.uz/rest/v1/public/stat-student`
+      `https://student.ndpi.uz/rest/v1/public/stat-student`,
     );
     const transformData = (data) => {
       return Object.entries(data.region).map(([region, values]) => ({
@@ -473,7 +474,7 @@ router.get("/appartment/student-info/:id", async (req, res) => {
       });
     }
     const findStudent = await StudentModel.findById(
-      findAppartment.studentId
+      findAppartment.studentId,
     ).select("image second_name province level first_name");
     const dataSchema = {
       appartment: findAppartment,
@@ -563,7 +564,7 @@ router.post(
         .status(500)
         .json({ status: "error", message: "Internal Server Error" });
     }
-  }
+  },
 );
 
 router.post("/statistics/faculty-data", authMiddleware, async (req, res) => {
@@ -668,7 +669,10 @@ router.get(
       const permissionIds = processPermissions.map((p) => p._id.toString());
 
       // Barcha fakultetlar
-      const faculties = await StudentModel.distinct("department.name");
+      const facultyDocs = await FacultyModel.find({ active: true })
+        .select("name")
+        .lean();
+      const faculties = facultyDocs.map((f) => f.name);
 
       // Bir martalik aggregation - barcha kerakli ma'lumotlarni olish
       const appartmentStats = await AppartmentModel.aggregate([
@@ -760,7 +764,7 @@ router.get(
       console.error("❌ Permission statistics error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 // Permission statistikasi - Faculty Admin uchun (OPTIMIZED)
@@ -878,7 +882,7 @@ router.get(
         .lean();
 
       const allGroupCodes = tutors.flatMap((t) =>
-        t.group.map((g) => g.code.toString())
+        t.group.map((g) => g.code.toString()),
       );
 
       const groupAppartments = await AppartmentModel.aggregate([
@@ -967,7 +971,7 @@ router.get(
       const totalStats = {
         totalStudents: facultyStats.reduce(
           (sum, f) => sum + f.totalStudents,
-          0
+          0,
         ),
         totalFilled: facultyStats.reduce((sum, f) => sum + f.filled, 0),
         totalNotFilled: facultyStats.reduce((sum, f) => sum + f.notFilled, 0),
@@ -988,7 +992,7 @@ router.get(
       console.error("❌ Faculty admin permission statistics error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 router.post(
   "/statistics/faculty-groups",
@@ -1074,12 +1078,12 @@ router.post(
             notFilled: group.totalStudents - filledCount,
             percentage,
           };
-        })
+        }),
       );
 
       // Percentage bo'yicha saralash
       groupsWithStats.sort(
-        (a, b) => parseFloat(b.percentage) - parseFloat(a.percentage)
+        (a, b) => parseFloat(b.percentage) - parseFloat(a.percentage),
       );
 
       res.json({
@@ -1090,7 +1094,7 @@ router.post(
       console.error("❌ Faculty groups error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 // Guruh studentlarini olish (Faculty Admin uchun)
@@ -1133,7 +1137,7 @@ router.post(
         ],
       })
         .select(
-          "full_name first_name second_name image university level specialty province group"
+          "full_name first_name second_name image university level specialty province group",
         )
         .lean();
 
@@ -1157,7 +1161,7 @@ router.post(
             filled: !!appartment,
             appartmentStatus: appartment?.status || null,
           };
-        })
+        }),
       );
 
       // To'ldirilmagan studentlar oldinda
@@ -1171,7 +1175,7 @@ router.post(
       console.error("❌ Group students error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 router.get(
@@ -1265,7 +1269,7 @@ router.get(
       console.error("Recent permissions error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 // Dashboard uchun umumiy statistika
@@ -1376,7 +1380,7 @@ router.get(
       console.error("Dashboard summary error:", error);
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 export default router;

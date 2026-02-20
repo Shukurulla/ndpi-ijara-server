@@ -1,8 +1,10 @@
-// index.js - Socket.IO + Firebase integratsiyasi (FIREBASE FIXED)
 import express from "express";
 import { config } from "dotenv";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import mongoSanitize from "express-mongo-sanitize";
 import StudentRouter from "./routes/student.routes.js";
 import AppartmentRouter from "./routes/appartment.routes.js";
 import AdminRouter from "./routes/admin.routes.js";
@@ -22,20 +24,16 @@ import ChatRouter from "./routes/chat.routes.js";
 import tutorModel from "./models/tutor.model.js";
 import chatModel from "./models/chat.model.js";
 import StudentModel from "./models/student.model.js";
-import axios from "axios";
-import {
-  autoRefreshStudentData,
-  startAutoRefreshCron,
-} from "./utils/refreshData.js";
 import PermissionRouter from "./routes/permission.routes.js";
 import permissionModel from "./models/permission.model.js";
-import { fixExistingStudentData } from "./utils/fixStudentData.js";
 import AppartmentModel from "./models/appartment.model.js";
 import DistrictsRoutes from "./routes/districts.routes.js";
 import StatusServer from "./routes/statusServer.routes.js";
 import { checkRefreshStatus } from "./middlewares/refreshCheck.middleware.js";
+import { syncFaculties } from "./utils/syncFaculties.js";
+import GroupModel from "./models/group.model.js";
+import authMiddleware from "./middlewares/auth.middleware.js";
 
-// Firebase Admin SDK - Dinamik import
 let admin = null;
 let isFirebaseInitialized = false;
 
@@ -44,13 +42,11 @@ const __dirname = path.dirname(__filename);
 
 config();
 
-// Firebase warning va errorlarini filtrlash
 const originalConsoleWarn = console.warn;
 const originalConsoleError = console.error;
 
 console.warn = function (...args) {
   const message = args.join(" ");
-  // Firebase warning va errorlarini yashirish
   if (
     message.includes("@firebase/database") ||
     message.includes("FIREBASE WARNING") ||
@@ -58,14 +54,13 @@ console.warn = function (...args) {
     message.includes("Invalid JWT Signature") ||
     message.includes("app/invalid-credential")
   ) {
-    return; // Firebase warninglarini ko'rsatmaslik
+    return;
   }
   originalConsoleWarn.apply(console, args);
 };
 
 console.error = function (...args) {
   const message = args.join(" ");
-  // Firebase errorlarini yashirish
   if (
     message.includes("@firebase/database") ||
     message.includes("FIREBASE WARNING") ||
@@ -73,19 +68,16 @@ console.error = function (...args) {
     message.includes("Invalid JWT Signature") ||
     message.includes("app/invalid-credential")
   ) {
-    return; // Firebase errorlarini ko'rsatmaslik
+    return;
   }
   originalConsoleError.apply(console, args);
 };
 
-// Firebase'ni asinxron yuklash va initialize qilish
 async function initializeFirebase() {
   try {
-    // Firebase admin SDK'ni dinamik import qilish
     const adminModule = await import("firebase-admin");
     admin = adminModule.default;
 
-    // Agar allaqachon initialized bo'lsa, qayta qilmaymiz
     if (admin.apps && admin.apps.length > 0) {
       console.log("🔥 Firebase already initialized");
       isFirebaseInitialized = true;
@@ -94,7 +86,6 @@ async function initializeFirebase() {
 
     const serviceAccountPath = path.join(__dirname, "serviceAccountKey.json");
 
-    // Fayl mavjudligini tekshirish
     if (!fs.existsSync(serviceAccountPath)) {
       console.warn("⚠️ serviceAccountKey.json file not found");
       console.warn("   FCM notifications will be disabled");
@@ -102,7 +93,6 @@ async function initializeFirebase() {
       return false;
     }
 
-    // JSON faylni o'qish va parse qilish
     const serviceAccountContent = fs.readFileSync(serviceAccountPath, "utf-8");
     let serviceAccount;
 
@@ -111,16 +101,13 @@ async function initializeFirebase() {
     } catch (parseError) {
       console.error(
         "❌ Failed to parse serviceAccountKey.json:",
-        parseError.message
+        parseError.message,
       );
       return false;
     }
 
-    // Firebase'ni initialize qilish
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
-      // Agar kerak bo'lsa, databaseURL qo'shing:
-      // databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
     });
 
     console.log("🔥 Firebase Admin SDK initialized successfully");
@@ -139,9 +126,19 @@ async function initializeFirebase() {
 const app = express();
 const server = createServer(app);
 
+const allowedOrigins = [
+  "https://tutorapp.kerek.uz",
+  "https://admin.tutorapp.kerek.uz",
+  "https://student.tutorapp.kerek.uz",
+  process.env.NODE_ENV !== "production" ? "http://localhost:5173" : null,
+  process.env.NODE_ENV !== "production" ? "http://localhost:5175" : null,
+  process.env.NODE_ENV !== "production" ? "http://localhost:5176" : null,
+  process.env.NODE_ENV !== "production" ? "http://localhost:3000" : null,
+].filter(Boolean);
+
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -149,53 +146,83 @@ const io = new Server(server, {
 });
 
 app.use(
-  cors({
-    origin: "*",
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-  })
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
 );
 
-app.use(express.json({ limit: "100mb" }));
 app.use(
-  express.urlencoded({ extended: true, limit: "100mb", parameterLimit: 50000 })
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS policy tomonidan rad etildi"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  }),
+);
+
+app.use(mongoSanitize());
+
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  message: {
+    status: "error",
+    message: "Juda ko'p so'rov. Keyinroq urinib ko'ring",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(generalLimiter);
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: {
+    status: "error",
+    message: "Juda ko'p login urinish. 15 daqiqadan keyin urinib ko'ring",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/admin/login", loginLimiter);
+app.use("/student/sign", loginLimiter);
+app.use("/tutor/login", loginLimiter);
+
+app.use(express.json({ limit: "5mb" }));
+app.use(
+  express.urlencoded({ extended: true, limit: "5mb", parameterLimit: 1000 }),
 );
 app.use("/public", express.static(path.join(__dirname, "public")));
 
 const port = 7788;
 const mongo_url = process.env.MONGO_URI;
 
-// MongoDB connection
 mongoose
   .connect(mongo_url)
   .then(async () => {
     console.log("✅ Database connected successfully");
 
-    // Firebase'ni database connected bo'lgandan keyin initialize qilamiz
     await initializeFirebase();
 
-    // Cron job ni ishga tushirish
-    startAutoRefreshCron();
-
+    // Fakultetlarni HEMIS API dan sinxronlash
     try {
-      const indexExists = await StudentModel.collection.indexExists(
-        "student_id_number_1"
+      const result = await syncFaculties();
+      console.log(
+        `✅ Fakultetlar sinxronlandi: ${result.total} ta fakultet (${result.created} yangi, ${result.updated} yangilandi)`,
       );
-      if (!indexExists) {
-        await StudentModel.collection.createIndex({ student_id_number: 1 });
-        console.log("✅ Index created");
-      }
-    } catch (error) {
-      if (error.code !== 86) {
-        console.error("Index error:", error);
-      }
+    } catch (err) {
+      console.warn("⚠️ Fakultetlarni sinxronlashda xatolik:", err.message);
     }
   })
   .catch((error) => {
     console.error("❌ Database connection error:", error);
   });
 
-// FCM yuborish funksiyasi - Xavfsiz versiya
 async function sendFCMNotification(tokens, payload) {
   if (!isFirebaseInitialized || !admin) {
     console.log("⚠️ FCM is disabled - Firebase not initialized");
@@ -213,7 +240,6 @@ async function sendFCMNotification(tokens, payload) {
   }
 
   try {
-    // Bitta token uchun
     if (validTokens.length === 1) {
       const message = {
         notification: payload.notification,
@@ -242,7 +268,6 @@ async function sendFCMNotification(tokens, payload) {
       return { success: true, messageId: response };
     }
 
-    // Ko'p token uchun
     const messages = validTokens.map((token) => ({
       notification: payload.notification,
       data: payload.data || {},
@@ -267,10 +292,9 @@ async function sendFCMNotification(tokens, payload) {
 
     const response = await admin.messaging().sendEach(messages);
     console.log(
-      `📨 FCM sent: ${response.successCount}/${validTokens.length} successful`
+      `📨 FCM sent: ${response.successCount}/${validTokens.length} successful`,
     );
 
-    // Agar xatoliklar bo'lsa, ularni log qilish
     if (response.failureCount > 0) {
       response.responses.forEach((resp, idx) => {
         if (!resp.success) {
@@ -287,7 +311,6 @@ async function sendFCMNotification(tokens, payload) {
   } catch (error) {
     console.error("❌ FCM error:", error.message);
 
-    // Agar Firebase credential muammosi bo'lsa
     if (
       error.code === "auth/invalid-credential" ||
       error.message?.includes("invalid_grant") ||
@@ -302,7 +325,6 @@ async function sendFCMNotification(tokens, payload) {
   }
 }
 
-// Socket.IO events
 io.on("connection", (socket) => {
   console.log("✅ User connected:", socket.id);
 
@@ -326,7 +348,7 @@ io.on("connection", (socket) => {
           fcmToken: token,
           fcmTokenUpdatedAt: new Date(),
         },
-        { upsert: false, new: true }
+        { upsert: false, new: true },
       );
 
       if (!student) {
@@ -339,7 +361,7 @@ io.on("connection", (socket) => {
       console.log(
         `✅ Token saved for: ${
           student.full_name || student.first_name || student._id
-        }`
+        }`,
       );
 
       socket.emit("tokenSaved", {
@@ -429,14 +451,12 @@ io.on("connection", (socket) => {
 
       console.log(`✅ Message sent to ${roomName}`);
 
-      // FCM to group students - OPTIMIZED VERSION
       if (isFirebaseInitialized && admin) {
         try {
           console.log(
-            `🔍 Looking for students in group: ${groupData.id} (${groupData.name})`
+            `🔍 Looking for students in group: ${groupData.id} (${groupData.name})`,
           );
 
-          // Guruhga tegishli studentlarni olish (FCM token bilan)
           const students = await StudentModel.find({
             $and: [
               {
@@ -453,14 +473,13 @@ io.on("connection", (socket) => {
             ],
           })
             .select("_id full_name first_name fcmToken group")
-            .limit(500); // Max 500 ta student
+            .limit(500);
 
           if (students && students.length > 0) {
             console.log(
-              `📱 Found ${students.length} students with FCM tokens in group ${groupData.id}`
+              `📱 Found ${students.length} students with FCM tokens in group ${groupData.id}`,
             );
 
-            // Log first few students for debug
             students.slice(0, 3).forEach((s) => {
               const name = s.full_name || s.first_name || s._id;
               console.log(`  - ${name} (${s.group?.name})`);
@@ -491,21 +510,20 @@ io.on("connection", (socket) => {
 
               if (fcmResult.success) {
                 console.log(
-                  `✅ FCM notifications sent: ${fcmResult.successCount} successful`
+                  `✅ FCM notifications sent: ${fcmResult.successCount} successful`,
                 );
               } else {
                 console.log(
                   `⚠️ FCM sending issues:`,
-                  fcmResult.error || "Some tokens failed"
+                  fcmResult.error || "Some tokens failed",
                 );
               }
             }
           } else {
             console.log(
-              `⚠️ No students with FCM tokens found in group ${groupData.id}`
+              `⚠️ No students with FCM tokens found in group ${groupData.id}`,
             );
 
-            // Debug: Check total students in group
             const totalInGroup = await StudentModel.countDocuments({
               $or: [
                 { "group.id": groupData.id },
@@ -517,7 +535,7 @@ io.on("connection", (socket) => {
 
             if (totalInGroup > 0) {
               console.log(
-                `   (${totalInGroup} students in group, but none have FCM tokens)`
+                `   (${totalInGroup} students in group, but none have FCM tokens)`,
               );
             } else {
               console.log(`   (No students found in this group)`);
@@ -551,14 +569,11 @@ io.on("connection", (socket) => {
 
 app.set("io", io);
 
-// Routes (middleware'siz - login va asosiy funksiyalar ishlashi uchun)
 app.use(AdminRouter);
 app.use("/faculty-admin", FacultyAdminRouter);
 
-// Refresh check middleware - faqat student ma'lumotlari bilan bog'liq route'lar uchun
 app.use(checkRefreshStatus);
 
-// Student ma'lumotlari bilan bog'liq route'lar
 app.use(StudentRouter);
 app.use(AppartmentRouter);
 app.use(TutorRouter);
@@ -572,25 +587,25 @@ app.use("/permission", PermissionRouter);
 app.use("/api", DistrictsRoutes);
 app.use("/api", StatusServer);
 
-// FCM token save API
-app.post("/api/save-fcm-token", async (req, res) => {
+app.post("/api/save-fcm-token", authMiddleware, async (req, res) => {
   try {
-    const { studentId, token } = req.body;
+    const { userId } = req.userData;
+    const { token } = req.body;
 
-    if (!studentId || !token) {
+    if (!token) {
       return res.status(400).json({
         status: "error",
-        message: "studentId va token majburiy",
+        message: "Token majburiy",
       });
     }
 
     const student = await StudentModel.findByIdAndUpdate(
-      studentId,
+      userId,
       {
         fcmToken: token,
         fcmTokenUpdatedAt: new Date(),
       },
-      { new: true, upsert: false }
+      { new: true, upsert: false },
     );
 
     if (!student) {
@@ -600,132 +615,27 @@ app.post("/api/save-fcm-token", async (req, res) => {
       });
     }
 
-    const studentName = student.full_name || student.first_name || student._id;
-    console.log(`✅ FCM Token saved via API for: ${studentName}`);
-
     return res.status(200).json({
       status: "success",
       message: "FCM token saqlandi",
-      data: {
-        studentId: student._id,
-        studentName: studentName,
-      },
     });
   } catch (error) {
-    console.error("❌ FCM token save error:", error);
     return res.status(500).json({
       status: "error",
-      message: error.message || "Server xatolik",
+      message: "Server xatolik",
     });
   }
 });
 
 app.get("/groups", async (req, res) => {
   try {
-    const allStudents = await StudentModel.find().select("group");
-    const sortGroups = [...new Set(allStudents)];
-    res.status(200).json({ status: "success", data: sortGroups });
+    const groups = await GroupModel.find()
+      .select("id name educationLang facultyName facultyCode")
+      .sort({ name: 1 })
+      .lean();
+    res.status(200).json({ status: "success", data: groups });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
-  }
-});
-
-// Debug endpoint - Guruh studentlarini tekshirish
-app.get("/api/debug/group/:groupId", async (req, res) => {
-  try {
-    const groupId = req.params.groupId;
-
-    // Guruhga tegishli barcha studentlar
-    const allGroupStudents = await StudentModel.find({
-      $or: [
-        { "group.id": groupId },
-        { "group.id": String(groupId) },
-        { "group.id": Number(groupId) },
-      ],
-    }).select("full_name first_name group fcmToken");
-
-    // FCM tokenli studentlar
-    const studentsWithToken = allGroupStudents.filter((s) => s.fcmToken);
-
-    return res.json({
-      status: "success",
-      groupId: groupId,
-      totalStudentsInGroup: allGroupStudents.length,
-      studentsWithToken: studentsWithToken.length,
-      studentsWithoutToken: allGroupStudents.length - studentsWithToken.length,
-      students: allGroupStudents.map((s) => ({
-        name: s.full_name || s.first_name || "No name",
-        groupId: s.group?.id,
-        groupName: s.group?.name,
-        hasToken: !!s.fcmToken,
-        tokenPreview: s.fcmToken ? s.fcmToken.substring(0, 20) + "..." : null,
-      })),
-      firebaseStatus: isFirebaseInitialized ? "active" : "disabled",
-    });
-  } catch (error) {
-    return res.status(500).json({ status: "error", message: error.message });
-  }
-});
-
-// Firebase status endpoint
-app.get("/api/firebase/status", (req, res) => {
-  res.json({
-    status: "success",
-    firebase: {
-      initialized: isFirebaseInitialized,
-      hasAdmin: !!admin,
-      appsCount: admin?.apps?.length || 0,
-      message: isFirebaseInitialized
-        ? "Firebase FCM is active and ready"
-        : "Firebase FCM is disabled - Socket.IO messaging is active",
-    },
-  });
-});
-
-// Test FCM endpoint
-app.post("/api/test-fcm", async (req, res) => {
-  try {
-    const { token } = req.body;
-
-    if (!token) {
-      return res.status(400).json({
-        status: "error",
-        message: "Token is required",
-      });
-    }
-
-    if (!isFirebaseInitialized || !admin) {
-      return res.status(503).json({
-        status: "error",
-        message: "Firebase is not initialized",
-      });
-    }
-
-    const message = {
-      notification: {
-        title: "Test Notification",
-        body: "This is a test message from TutorApp",
-      },
-      data: {
-        type: "test",
-        timestamp: new Date().toISOString(),
-      },
-      token: token,
-    };
-
-    const response = await admin.messaging().send(message);
-
-    res.json({
-      status: "success",
-      message: "Test notification sent",
-      messageId: response,
-    });
-  } catch (error) {
-    console.error("Test FCM error:", error);
-    res.status(500).json({
-      status: "error",
-      message: error.message,
-    });
   }
 });
 
@@ -753,7 +663,6 @@ app.get("/info", async (req, res) => {
   }
 });
 
-// Banners
 app.get("/get-banners", async (req, res) => {
   const arrBanner = [
     "/public/banner/alert_banner.png",
@@ -765,7 +674,6 @@ app.get("/get-banners", async (req, res) => {
   res.status(200).json({ status: "success", data: arrBanner });
 });
 
-// Health check endpoint
 app.get("/health", (req, res) => {
   res.json({
     status: "healthy",
@@ -779,15 +687,20 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error("Server Error:", error);
+app.use((error, req, res, _next) => {
+  console.error("Server Error:", error.message);
+
+  if (error.message === "CORS policy tomonidan rad etildi") {
+    return res.status(403).json({
+      status: "error",
+      message: "Ruxsat berilmagan manba",
+    });
+  }
 
   if (error.code === "LIMIT_FILE_SIZE") {
     return res.status(413).json({
       status: "error",
-      message: "Fayl hajmi juda katta",
-      maxSize: "100MB",
+      message: "Fayl hajmi juda katta (max 10MB)",
     });
   }
 
@@ -802,7 +715,6 @@ app.use((error, req, res, next) => {
     return res.status(413).json({
       status: "error",
       message: "Kutilmagan fayl maydoni",
-      field: error.field,
     });
   }
 
@@ -815,11 +727,10 @@ app.use((error, req, res, next) => {
 
   res.status(500).json({
     status: "error",
-    message: error.message || "Internal server error",
+    message: "Serverda xatolik yuz berdi",
   });
 });
 
-// Server start
 server.listen(port, async () => {
   console.log(`🚀 Server running on port ${port}`);
   console.log(`🔌 Socket.IO ready`);
@@ -828,7 +739,6 @@ server.listen(port, async () => {
     console.log(`🔥 Firebase FCM ready`);
   } else {
     console.log(`⚠️ Firebase FCM disabled - Socket.IO messaging active`);
-    // Try to initialize Firebase again if it failed during startup
     if (!isFirebaseInitialized) {
       setTimeout(async () => {
         console.log("🔄 Retrying Firebase initialization...");
@@ -837,14 +747,19 @@ server.listen(port, async () => {
     }
   }
 
-  console.log(`📡 API endpoints:`);
-  console.log(`   - http://localhost:${port}/health`);
-  console.log(`   - http://localhost:${port}/api/firebase/status`);
-  console.log(`   - http://localhost:${port}/api/debug/group/:groupId`);
-  console.log(`   - http://localhost:${port}/api/test-fcm`);
+  console.log(`📡 Server ready on port ${port}`);
 });
 
-// Graceful shutdown
+app.get("/studetnsss", async (req, res) => {
+  try {
+    const students = await GroupModel.find();
+
+    res.status(200).json({ status: "success", data: students });
+  } catch (error) {
+    res.status(500).json({ error: error });
+  }
+});
+
 process.on("SIGTERM", () => {
   console.log("SIGTERM received - shutting down gracefully");
   server.close(() => {
@@ -865,16 +780,12 @@ process.on("SIGINT", () => {
   });
 });
 
-// Unhandled rejection handler
 process.on("unhandledRejection", (err) => {
   console.error("Unhandled Promise Rejection:", err);
-  // Log but don't exit
 });
 
-// Uncaught exception handler
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err);
-  // Critical errors only
   if (err.message && err.message.includes("EADDRINUSE")) {
     console.error("Port already in use, exiting...");
     process.exit(1);

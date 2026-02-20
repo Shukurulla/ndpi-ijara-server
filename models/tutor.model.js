@@ -1,4 +1,3 @@
-// models/tutor.model.js
 import mongoose from "mongoose";
 
 const tutorSchema = new mongoose.Schema(
@@ -41,12 +40,11 @@ const tutorSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-const tutorModel = mongoose.model("tutor", tutorSchema);
+tutorSchema.index({ login: 1 });
+tutorSchema.index({ facultyAdmin: 1 });
+tutorSchema.index({ "group.code": 1 });
+tutorSchema.index({ facultyAdmin: 1, "group.code": 1 });
 
-// Indexes for frequently queried fields
-tutorModel.collection.createIndex({ login: 1 }); // Login queries
-tutorModel.collection.createIndex({ facultyAdmin: 1 }); // Admin filtering
-tutorModel.collection.createIndex({ "group.code": 1 }); // Group lookups
-tutorModel.collection.createIndex({ facultyAdmin: 1, "group.code": 1 }); // Compound index
+const tutorModel = mongoose.model("tutor", tutorSchema);
 
 export default tutorModel;

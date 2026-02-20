@@ -4,6 +4,8 @@ import facultyAdminModel from "../models/faculty.admin.model.js";
 import authMiddleware from "../middlewares/auth.middleware.js";
 import tutorModel from "../models/tutor.model.js";
 import StudentModel from "../models/student.model.js";
+import FacultyModel from "../models/faculty.model.js";
+import GroupModel from "../models/group.model.js";
 import bcrypt from "bcrypt";
 import AppartmentModel from "../models/appartment.model.js";
 import { uploadSingleImage } from "../middlewares/upload.middleware.js";
@@ -18,45 +20,20 @@ const router = express.Router();
 
 router.get("/faculties-with-assignment", async (req, res) => {
   try {
-    // Studentlardan unique departmentlarni olish
-    const departments = await StudentModel.aggregate([
-      {
-        $group: {
-          _id: {
-            name: "$department.name",
-            code: "$department.code",
-          },
-        },
-      },
-      {
-        $match: {
-          "_id.name": { $ne: null, $exists: true },
-        },
-      },
-      {
-        $project: {
-          name: "$_id.name",
-          code: "$_id.code",
-          _id: 0,
-        },
-      },
-      {
-        $sort: { name: 1 },
-      },
-    ]);
+    const faculties = await FacultyModel.find({ active: true })
+      .select("name code")
+      .sort({ name: 1 })
+      .lean();
 
-    // Har bir fakultet uchun assignment statusini tekshirish
     const facultiesWithStatus = await Promise.all(
-      departments.map(async (dept) => {
+      faculties.map(async (faculty) => {
         const existingAdmin = await facultyAdminModel
-          .findOne({
-            "faculties.name": dept.name,
-          })
+          .findOne({ "faculties.name": faculty.name })
           .select("firstName lastName");
 
         return {
-          name: dept.name,
-          code: dept.code || dept.name.toLowerCase().replace(/\s+/g, "_"),
+          name: faculty.name,
+          code: faculty.code,
           isAssigned: !!existingAdmin,
           assignedToAdmin: existingAdmin
             ? {
@@ -83,43 +60,20 @@ router.get("/faculties-with-assignment", async (req, res) => {
 // Fakultetlar ro'yxatini olish (name va code bilan)
 router.get("/faculties-with-codes", async (req, res) => {
   try {
-    // Studentlardan unique departmentlarni olish
-    const departments = await StudentModel.aggregate([
-      {
-        $group: {
-          _id: {
-            name: "$department.name",
-            code: "$department.code",
-          },
-        },
-      },
-      {
-        $match: {
-          "_id.name": { $ne: null, $exists: true },
-        },
-      },
-      {
-        $project: {
-          name: "$_id.name",
-          code: "$_id.code",
-          _id: 0,
-        },
-      },
-      {
-        $sort: { name: 1 },
-      },
-    ]);
+    const faculties = await FacultyModel.find({ active: true })
+      .select("name code")
+      .sort({ name: 1 })
+      .lean();
 
-    // Har bir fakultet uchun allaqachon fakultet admin bor-yo'qligini tekshirish
     const facultiesWithAdmins = await Promise.all(
-      departments.map(async (dept) => {
+      faculties.map(async (faculty) => {
         const existingAdmin = await facultyAdminModel.findOne({
-          "faculties.name": dept.name,
+          "faculties.name": faculty.name,
         });
 
         return {
-          name: dept.name,
-          code: dept.code || dept.name.toLowerCase().replace(/\s+/g, "_"),
+          name: faculty.name,
+          code: faculty.code,
           isAssigned: !!existingAdmin,
           assignedToAdmin: existingAdmin
             ? {
@@ -148,7 +102,6 @@ router.get("/groups-with-tutors", authMiddleware, async (req, res) => {
   try {
     const { userId } = req.userData;
 
-    // Fakultet admin profilini olish
     const facultyAdmin = await facultyAdminModel.findById(userId);
     if (!facultyAdmin) {
       return res.status(401).json({
@@ -159,38 +112,10 @@ router.get("/groups-with-tutors", authMiddleware, async (req, res) => {
 
     const facultyNames = facultyAdmin.faculties.map((f) => f.name);
 
-    // Har bir fakultet uchun guruhlarni olish
-    const allGroups = [];
-    for (const facultyName of facultyNames) {
-      const students = await StudentModel.find({
-        "department.name": facultyName,
-      }).select("group");
+    const allGroups = await GroupModel.find({ facultyName: { $in: facultyNames } })
+      .sort({ name: 1 })
+      .lean();
 
-      // Unique guruhlarni olish
-      const uniqueGroups = [];
-      const seen = new Set();
-
-      students.forEach((student) => {
-        if (student.group && student.group.name) {
-          const groupKey = `${student.group.name}_${student.group.id}`;
-          if (!seen.has(groupKey)) {
-            seen.add(groupKey);
-            uniqueGroups.push({
-              id: student.group.id,
-              name: student.group.name,
-              educationLang: student.group.educationLang || {
-                name: "O'zbek",
-              },
-              faculty: facultyName,
-            });
-          }
-        }
-      });
-
-      allGroups.push(...uniqueGroups);
-    }
-
-    // Har bir guruh uchun tutor assignment statusini tekshirish
     const groupsWithTutors = await Promise.all(
       allGroups.map(async (group) => {
         const existingTutor = await tutorModel.findOne({
@@ -198,7 +123,11 @@ router.get("/groups-with-tutors", authMiddleware, async (req, res) => {
         });
 
         return {
-          ...group,
+          id: group.id,
+          name: group.name,
+          educationLang: group.educationLang || { name: "O'zbek" },
+          faculty: group.facultyName,
+          facultyCode: group.facultyCode,
           isAssigned: !!existingTutor,
           assignedToTutor: existingTutor
             ? {
@@ -662,16 +591,13 @@ router.get("/my-tutors", authMiddleware, async (req, res) => {
   }
 });
 
-// Fakultetlar ro'yxatini olish (studentlar asosida)
+// Fakultetlar ro'yxatini olish (Faculty modeldan)
 router.get("/faculties", async (req, res) => {
   try {
-    const uniqueFaculties = await StudentModel.distinct("department.name");
-    const faculties = uniqueFaculties
-      .filter((name) => name && name.trim() !== "")
-      .map((name) => ({
-        name: name,
-        code: name.toLowerCase().replace(/\s+/g, "_"),
-      }));
+    const faculties = await FacultyModel.find({ active: true })
+      .select("name code")
+      .sort({ name: 1 })
+      .lean();
 
     res.json({ status: "success", data: faculties });
   } catch (error) {
@@ -679,35 +605,17 @@ router.get("/faculties", async (req, res) => {
   }
 });
 
-// Fakultetga tegishli guruhlarni olish
+// Fakultetga tegishli guruhlarni olish (Group modeldan)
 router.get("/faculty-groups/:facultyName", async (req, res) => {
   try {
     const { facultyName } = req.params;
 
-    // Ushbu fakultetdagi studentlarning guruhlarini olish
-    const students = await StudentModel.find({
-      "department.name": facultyName,
-    }).select("group");
+    const groups = await GroupModel.find({ facultyName: facultyName })
+      .select("id name educationLang")
+      .sort({ name: 1 })
+      .lean();
 
-    // Takrorlanmas guruhlar ro'yxatini yaratish
-    const uniqueGroups = [];
-    const seen = new Set();
-
-    students.forEach((student) => {
-      if (student.group && student.group.name) {
-        const groupKey = `${student.group.name}_${student.group.id}`;
-        if (!seen.has(groupKey)) {
-          seen.add(groupKey);
-          uniqueGroups.push({
-            id: student.group.id,
-            name: student.group.name,
-            educationLang: student.group.educationLang || { name: "O'zbek" },
-          });
-        }
-      }
-    });
-
-    res.json({ status: "success", data: uniqueGroups });
+    res.json({ status: "success", data: groups });
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
   }

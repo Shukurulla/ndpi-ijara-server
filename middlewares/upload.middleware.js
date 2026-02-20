@@ -6,7 +6,6 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Rasm uchun storage
 const imageStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, "../public/images");
@@ -22,7 +21,6 @@ const imageStorage = multer.diskStorage({
   },
 });
 
-// PDF fayllar uchun storage
 const pdfStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, "../public/files");
@@ -38,7 +36,6 @@ const pdfStorage = multer.diskStorage({
   },
 });
 
-// Ads uchun storage
 const adsStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, "../public/ads");
@@ -50,15 +47,13 @@ const adsStorage = multer.diskStorage({
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     const fileExt = path.extname(file.originalname);
-    const prefix = file.mimetype.split("/")[0]; // 'image'
+    const prefix = file.mimetype.split("/")[0];
     cb(null, `${uniqueSuffix}_${prefix}${fileExt}`);
   },
 });
 
-// Combined storage for mixed file types
 const mixedStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // contractPdf uchun files papkasi
     if (file.fieldname === "contractPdf") {
       const uploadDir = path.join(__dirname, "../public/files");
       if (!fs.existsSync(uploadDir)) {
@@ -66,7 +61,6 @@ const mixedStorage = multer.diskStorage({
       }
       cb(null, uploadDir);
     }
-    // Boshqa rasmlar uchun images papkasi
     else {
       const uploadDir = path.join(__dirname, "../public/images");
       if (!fs.existsSync(uploadDir)) {
@@ -82,7 +76,6 @@ const mixedStorage = multer.diskStorage({
   },
 });
 
-// Fayl filtri
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ["image/jpeg", "image/png", "image/jpg", "image/gif"];
   if (allowedTypes.includes(file.mimetype)) {
@@ -92,7 +85,6 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Mixed fayl filtri (rasmlar va PDF uchun)
 const mixedFileFilter = (req, file, cb) => {
   const imageTypes = ["image/jpeg", "image/png", "image/jpg", "image/gif"];
   const pdfTypes = ["application/pdf"];
@@ -106,22 +98,20 @@ const mixedFileFilter = (req, file, cb) => {
   }
 };
 
-// Limitlar
 const uploadLimits = {
-  fileSize: 100 * 1024 * 1024, // 100MB
-  files: 10,
-  fields: 100, // 20 emas, 100 qilib qo‘ying
+  fileSize: 10 * 1024 * 1024,
+  files: 6,
+  fields: 30,
   fieldNameSize: 200,
   fieldSize: 1024 * 1024,
 };
-// Upload middleware-lari
+
 export const uploadSingleImage = multer({
   storage: imageStorage,
   limits: uploadLimits,
   fileFilter: fileFilter,
 }).single("image");
 
-// Updated: contractImage va contractPdf qo'shildi
 export const uploadMultipleImages = multer({
   storage: mixedStorage,
   limits: uploadLimits,
@@ -144,7 +134,6 @@ export const uploadAdsImages = multer({
   { name: "icon", maxCount: 1 },
 ]);
 
-// Default export
 const upload = multer({
   storage: imageStorage,
   limits: uploadLimits,

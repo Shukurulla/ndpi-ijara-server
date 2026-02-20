@@ -5,6 +5,8 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import StudentModel from "../models/student.model.js";
+import FacultyModel from "../models/faculty.model.js";
+import GroupModel from "../models/group.model.js";
 import tutorModel from "../models/tutor.model.js";
 import { uploadMultipleImages } from "../middlewares/upload.middleware.js";
 import NotificationModel from "../models/notification.model.js";
@@ -38,7 +40,6 @@ router.get("/appartment-types-count", async (req, res) => {
     const total = await AppartmentModel.countDocuments({
       permission: { $in: permissionIds },
     });
-    
 
     res.status(200).json({
       status: "success",
@@ -61,10 +62,7 @@ router.post(
   async (req, res) => {
     try {
       const { studentId, typeAppartment, permission } = req.body;
-      console.log(req.body);
-      console.log(req.files);
 
-      // Studentning current appartmenti bor-yo'qligini tekshirish
       if (!studentId || studentId === "undefined" || studentId.trim() === "") {
         return res.status(401).json({
           status: "error",
@@ -142,7 +140,6 @@ router.post(
           ? req.files?.additionImage[0]
           : null;
 
-        // Contract fayllarini olish
         const contractImage = req.files?.contractImage
           ? req.files?.contractImage[0]
           : null;
@@ -150,7 +147,6 @@ router.post(
           ? req.files?.contractPdf[0]
           : null;
 
-        // Original filename va extension bilan
         const getFileUrl = (file, isImage = true) => {
           const folder = isImage ? "images" : "files";
           return `/public/${folder}/${file.filename}${
@@ -160,7 +156,6 @@ router.post(
           }`;
         };
 
-        // Apartment data ni tayyorlash
         const apartmentData = {
           studentId,
           boilerImage: { url: getFileUrl(boilerImage) },
@@ -178,7 +173,6 @@ router.post(
           ...req.body,
         };
 
-        // Contract fayllarini qo'shish
         if (contractImage) {
           apartmentData.contractImage = getFileUrl(contractImage);
         }
@@ -186,7 +180,6 @@ router.post(
           apartmentData.contractPdf = getFileUrl(contractPdf, false);
         }
 
-        // Contract mavjudligini belgilash
         if (contractImage || contractPdf || req.body.contract) {
           apartmentData.contract = true;
         }
@@ -346,23 +339,20 @@ router.post(
         });
       }
     } catch (error) {
-      console.log(req.body);
-      console.log(req.files);
-      console.error("Xatolik:", error);
       res.status(500).json({
         status: "error",
-        message: error.message,
+        message: "Serverda xatolik yuz berdi",
       });
     }
   }
 );
 
-router.get("/appartment/all", async (req, res) => {
+router.get("/appartment/all", authMiddleware, async (req, res) => {
   try {
     const appartments = await AppartmentModel.find();
     res.json({ message: "success", data: appartments });
   } catch (error) {
-    res.json({ status: "error", message: error.message });
+    res.json({ status: "error", message: "Serverda xatolik yuz berdi" });
   }
 });
 
@@ -377,7 +367,6 @@ router.get("/appartment/by-group/:name", async (req, res) => {
     }).select("-bedroom");
 
     const filteredAppartments = findStudents.map((student) => {
-      // Eng oxirgi appartmentni topish
       const studentAppartments = appartments
         .filter((c) => c.studentId == student.student_id_number)
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -511,8 +500,11 @@ router.post("/appartment/check", authMiddleware, async (req, res) => {
 
 router.get("/faculties", async (req, res) => {
   try {
-    const uniqueFaculties = await StudentModel.distinct("department.name");
-    res.json({ data: uniqueFaculties });
+    const faculties = await FacultyModel.find({ active: true })
+      .select("name")
+      .sort({ name: 1 })
+      .lean();
+    res.json({ data: faculties.map((f) => f.name) });
   } catch (error) {
     res.json({ message: error.message });
   }
@@ -521,17 +513,15 @@ router.get("/faculties", async (req, res) => {
 router.get("/groups", async (req, res) => {
   try {
     const { search } = req.query;
-    const uniqueFaculties = await StudentModel.distinct("group");
-
-    if (!search) {
-      return res.json({ data: uniqueFaculties });
+    let query = {};
+    if (search) {
+      query.name = { $regex: search, $options: "i" };
     }
-
-    const filteredFaculties = uniqueFaculties.filter((faculty) =>
-      faculty.name.toLowerCase().includes(search.toLowerCase())
-    );
-
-    res.json({ data: filteredFaculties });
+    const groups = await GroupModel.find(query)
+      .select("id name educationLang")
+      .sort({ name: 1 })
+      .lean();
+    res.json({ data: groups });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -600,16 +590,6 @@ router.get("/name/:name", async (req, res) => {
   }
 });
 
-router.get("/appartment/all-delete", async (req, res) => {
-  try {
-    // deleteMany bilan bitta query da o'chirish (loop o'rniga)
-    const result = await AppartmentModel.deleteMany({});
-    res.json({ message: "success", deletedCount: result.deletedCount });
-  } catch (error) {
-    res.json({ message: error.message });
-  }
-});
-
 router.get("/appartment/new/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -635,7 +615,7 @@ router.get("/appartment/new/:id", authMiddleware, async (req, res) => {
 
     const permissionId = req.query?.permissionId
       ? req.query.permissionId
-      : activePermission._id.toString(); // 🔑
+      : activePermission._id.toString();
 
     const findStudent = await StudentModel.findById(id).select("_id");
     if (!findStudent) {
@@ -646,7 +626,7 @@ router.get("/appartment/new/:id", authMiddleware, async (req, res) => {
 
     const findAppartment = await AppartmentModel.find({
       studentId: id,
-      permission: permissionId, // endi mos keladi
+      permission: permissionId,
     });
 
     res.json({ status: "success", data: findAppartment });
@@ -661,7 +641,6 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
     const { userId } = req.userData;
     const { status } = req.params;
 
-    // 🔹 1. Statusni tekshirish
     if (!["red", "yellow", "green", "blue"].includes(status)) {
       return res.status(401).json({
         status: "error",
@@ -669,7 +648,6 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔹 2. Tutor topish
     const findTutor = await tutorModel.findById(userId).lean();
     if (!findTutor) {
       return res.status(400).json({
@@ -678,13 +656,11 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔹 3. Tutor guruhlari (normalizatsiya bilan)
     const tutorGroups = findTutor.group.map((g) => ({
       code: g.code?.toString().trim(),
       name: g.name,
     }));
 
-    // 🔹 4. Permission tekshirish
     const activePermission = await permissionModel
       .findOne({
         tutorId: userId,
@@ -699,16 +675,14 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       });
     }
 
-    // 🔹 5. Status query
     const normalizedStatus = status.toLowerCase();
     const statusQuery =
       normalizedStatus === "blue"
         ? {
             $or: [{ status: /being checked/i }, { status: { $exists: false } }],
           }
-        : { status: new RegExp(`^${normalizedStatus}$`, "i") };
+        : { status: normalizedStatus };
 
-    // 🔹 6. Appartmentlarni olish
     const appartments = await AppartmentModel.find({
       typeAppartment: "tenant",
       permission: activePermission._id.toString(),
@@ -717,18 +691,16 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       .populate("studentId", "group")
       .lean();
 
-    // 🔍 Debug uchun
     console.log(
       "Student groups:",
       appartments.map((a) => a.studentId?.group)
     );
 
-    // 🔹 7. Guruh bo‘yicha hisoblash (id asosida)
     const groupCounts = {};
     for (const app of appartments) {
       const student = app.studentId;
       if (student?.group?.id) {
-        const studentGroupCode = student.group.id.toString().trim(); // <-- normalization
+        const studentGroupCode = student.group.id.toString().trim();
 
         if (!groupCounts[studentGroupCode]) {
           groupCounts[studentGroupCode] = 0;
@@ -737,14 +709,12 @@ router.get("/appartment/status/:status", authMiddleware, async (req, res) => {
       }
     }
 
-    // 🔹 8. Tutor guruhlari bilan birlashtirish
     const result = tutorGroups.map((tg) => ({
       code: tg.code,
       groupName: tg.name,
-      countStudents: groupCounts[tg.code] || 0, // <-- String.toString() bilan taqqoslanadi
+      countStudents: groupCounts[tg.code] || 0,
     }));
 
-    // 🔹 9. Natijani qaytarish
     res.json({
       status: "success",
       data: result,
@@ -787,7 +757,6 @@ router.get(
         });
       }
 
-      // Studentlarni topamiz
       const findStudents = await StudentModel.find({
         "group.id": groupId,
       }).select(
@@ -796,7 +765,6 @@ router.get(
 
       const studentIds = findStudents.map((s) => s._id);
 
-      // Appartmentlarni student bilan birga populate qilamiz
       const findAppartments = await AppartmentModel.find({
         permission: findActivePermission._id.toString(),
         ...statusQuery,
@@ -861,26 +829,20 @@ router.put(
       console.log("Body ma'lumotlari:", updatedData);
       console.log("Yuklangan fayllar:", req.files);
 
-      // o‘zgargan rasm turlarini aniqlash uchun massiv
       const changedFields = [];
 
-      // Rasmni yangilash uchun funksiya (async file delete)
       const handleImageUpdate = (fieldName, existingUrl) => {
         if (req.files[fieldName] && req.files[fieldName][0]) {
-          // Eski rasmni o'chirish (async, blocking emas)
           if (existingUrl) {
             const oldPath = path.join(__dirname, "..", existingUrl);
             fs.promises.unlink(oldPath).catch(() => {});
           }
-          // O'zgargan rasm nomini qayd etamiz
           changedFields.push(fieldName);
-          // Yangi rasm URL
           return `/public/images/${req.files[fieldName][0].filename}`;
         }
         return existingUrl;
       };
 
-      // Har bir rasmni alohida tekshirish
       if (req.files.boilerImage && req.files.boilerImage[0]) {
         updatedData.boilerImage = {
           url: handleImageUpdate(
@@ -915,7 +877,6 @@ router.put(
         };
       }
 
-      // joylashuvni yangilash
       if (req.body.lat && req.body.lon) {
         updatedData.location = {
           lat: req.body.lat,
@@ -925,12 +886,11 @@ router.put(
         delete updatedData.lon;
       }
 
-      // Agar rasm yangilansa, umumiy statusni ham Being checked qilish
       if (changedFields.length > 0) {
         updatedData.status = "Being checked";
       }
 
-      console.log("O‘zgargan rasmlar:", changedFields);
+      console.log("O'zgargan rasmlar:", changedFields);
       console.log("Yangilanayotgan ma'lumotlar:", updatedData);
 
       const updateAppartment = await AppartmentModel.findByIdAndUpdate(
@@ -939,14 +899,12 @@ router.put(
         { new: true }
       );
 
-      // Har bir o‘zgargan rasm uchun eski notificationni o‘chirish
       for (const field of changedFields) {
         await NotificationModel.findOneAndDelete({
           appartmentId: req.params.id,
           need_data: field,
         });
 
-        // Yangisini yaratish
         await NotificationModel.create({
           userId,
           notification_type: "report",
@@ -975,7 +933,6 @@ router.put(
 
 router.delete("/appartment/clear", authMiddleware, async (req, res) => {
   try {
-    // deleteMany bilan bitta query da o'chirish (loop o'rniga)
     await AppartmentModel.deleteMany({});
     res
       .status(200)
@@ -991,13 +948,11 @@ router.get(
   async (req, res) => {
     try {
       const { type, groupId } = req.params;
-      // Bitta query bilan studentlarni olish va ularning appartmentlarini topish
       const students = await StudentModel.find({ "group.id": groupId })
         .select("_id")
         .lean();
       const studentIds = students.map((s) => s._id);
 
-      // Bitta query bilan barcha appartmentlarni olish
       const appartments = await AppartmentModel.find({
         typeAppartment: type,
         studentId: { $in: studentIds },
@@ -1018,7 +973,6 @@ router.get("/appartment/count-by-type", async (req, res) => {
       .lean();
     const permissionIds = permissions.map((p) => p._id.toString());
 
-    // Aggregation bilan barcha countlarni bitta query da olish
     const stats = await AppartmentModel.aggregate([
       { $match: { permission: { $in: permissionIds } } },
       {
@@ -1060,7 +1014,6 @@ router.get("/appartment/count-by-type", async (req, res) => {
     ]);
 
     const s = stats[0];
-    // Eski format bilan mos response (frontend bilan moslik uchun)
     const data = {
       tenant: {
         total: s.tenantTotal[0]?.count || 0,

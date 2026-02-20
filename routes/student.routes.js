@@ -12,8 +12,11 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { uploadSingleImage } from "../middlewares/upload.middleware.js";
 import axios from "axios";
+import GroupModel from "../models/group.model.js";
 
 const router = express.Router();
+
+const HEMIS_API_URL = process.env.HEMIS_API_URL || "https://student.ndpi.uz/rest/v1";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,15 +32,10 @@ router.post("/student/sign", async (req, res) => {
       });
     }
 
-    console.log("🔍 Login attempt:", login);
-
-    // 1️⃣ BIRINCHI - HEMIS orqali autentifikatsiya
     let hemisResponse;
     try {
-      console.log("📡 HEMIS ga so'rov yuborilmoqda...");
-
       hemisResponse = await axios.post(
-        "https://student.karsu.uz/rest/v1/auth/login",
+        `${HEMIS_API_URL}/auth/login`,
         {
           login: login.toString(),
           password: password.toString(),
@@ -48,15 +46,9 @@ router.post("/student/sign", async (req, res) => {
             "Content-Type": "application/json",
             Accept: "application/json",
           },
-        }
+        },
       );
 
-      console.log(
-        "✅ HEMIS javobi:",
-        hemisResponse.data?.success ? "Muvaffaqiyatli" : "Xato"
-      );
-
-      // HEMIS login muvaffaqiyatsiz bo'lsa
       if (!hemisResponse.data?.success) {
         return res.status(401).json({
           status: "error",
@@ -65,9 +57,6 @@ router.post("/student/sign", async (req, res) => {
         });
       }
     } catch (hemisError) {
-      console.error("❌ HEMIS xatosi:", hemisError.message);
-
-      // Agar HEMIS 401 xato qaytarsa - login/parol noto'g'ri
       if (
         hemisError.response?.status === 401 ||
         hemisError.response?.status === 400
@@ -79,7 +68,6 @@ router.post("/student/sign", async (req, res) => {
         });
       }
 
-      // Agar HEMIS server ishlamasa
       if (
         hemisError.code === "ECONNABORTED" ||
         hemisError.code === "ETIMEDOUT"
@@ -91,7 +79,6 @@ router.post("/student/sign", async (req, res) => {
         });
       }
 
-      // Boshqa HEMIS xatolari
       return res.status(500).json({
         status: "error",
         message: "HEMIS tizimida xatolik. Keyinroq urinib ko'ring",
@@ -99,12 +86,6 @@ router.post("/student/sign", async (req, res) => {
       });
     }
 
-    // 2️⃣ IKKINCHI - HEMIS muvaffaqiyatli bo'lsa, local bazadan studentni topish
-    console.log(
-      "✅ HEMIS autentifikatsiya muvaffaqiyatli, bazadan qidirilmoqda..."
-    );
-
-    // Aggregation orqali qidirish (string/number muammosini hal qiladi)
     const students = await StudentModel.aggregate([
       {
         $addFields: {
@@ -125,11 +106,7 @@ router.post("/student/sign", async (req, res) => {
 
     let findStudent = students[0] || null;
 
-    // Agar topilmasa, alternativ usul - indexed query bilan
     if (!findStudent) {
-      console.log("⚠️ Aggregation ishlamadi, alternativ qidiruv...");
-
-      // Direct query bilan qidirish (index ishlatadi)
       findStudent = await StudentModel.findOne({
         $or: [
           { student_id_number: login },
@@ -139,13 +116,8 @@ router.post("/student/sign", async (req, res) => {
       }).lean();
     }
 
-    // 3️⃣ Agar HEMIS da bor lekin local bazada yo'q bo'lsa
     if (!findStudent) {
-      console.log("⚠️ HEMIS da mavjud, lekin local bazada topilmadi");
-
-      // HEMIS dan student ma'lumotlarini olishga urinish
       if (hemisResponse?.data?.data) {
-        // Agar HEMIS student ma'lumotlarini qaytarsa
         const hemisStudentData = hemisResponse.data.data;
 
         return res.status(200).json({
@@ -158,8 +130,8 @@ router.post("/student/sign", async (req, res) => {
             existAppartment: false,
           },
           hemisData: hemisStudentData,
-          token: null, // Token bermaymiz chunki local bazada yo'q
-          needsSync: true, // Adminlarga sync kerakligini ko'rsatish
+          token: null,
+          needsSync: true,
         });
       }
 
@@ -171,24 +143,17 @@ router.post("/student/sign", async (req, res) => {
       });
     }
 
-    console.log("✅ Student topildi:", findStudent.student_id_number);
-
-    // 4️⃣ Appartment mavjudligini tekshirish
     let existAppartment = false;
     try {
       const apartment = await AppartmentModel.findOne({
         studentId: findStudent._id,
       }).lean();
       existAppartment = !!apartment;
-      console.log("🏠 Appartment mavjudmi:", existAppartment);
-    } catch (error) {
-      console.error("Apartment check error:", error);
+    } catch (_) {
     }
 
-    // 5️⃣ Token generatsiya
     const token = generateToken(findStudent._id);
 
-    // 6️⃣ Muvaffaqiyatli javob
     return res.status(200).json({
       status: "success",
       message: "Muvaffaqiyatli kirish",
@@ -200,85 +165,245 @@ router.post("/student/sign", async (req, res) => {
       hemisAuthenticated: true,
     });
   } catch (error) {
-    console.error("❌ Student sign xatosi:", error);
     return res.status(500).json({
       status: "error",
       message: "Serverda xatolik yuz berdi",
-      details: error.message,
     });
   }
 });
 
-// TEST UCHUN - HEMIS siz login (faqat development uchun)
-router.post("/student/sign-dev", async (req, res) => {
+router.post("/student/sign-hemis", async (req, res) => {
   try {
-    const { login } = req.body;
+    const { login, password } = req.body;
 
-    if (!login) {
+    if (!login || !password) {
       return res.status(400).json({
         status: "error",
-        message: "Login kiritish majburiy",
+        message: "Login va parol kiritish majburiy",
       });
     }
 
-    console.log("🧪 DEV MODE - HEMIS siz login:", login);
-
-    // Aggregation orqali qidirish
-    const students = await StudentModel.aggregate([
-      {
-        $addFields: {
-          studentIdString: {
-            $toString: "$student_id_number",
+    let hemisResponse;
+    try {
+      hemisResponse = await axios.post(
+        `${HEMIS_API_URL}/auth/login`,
+        {
+          login: login.toString(),
+          password: password.toString(),
+        },
+        {
+          timeout: 10000,
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
           },
         },
-      },
-      {
-        $match: {
-          studentIdString: login.toString(),
-        },
-      },
-      {
-        $limit: 1,
-      },
-    ]);
+      );
 
-    const findStudent = students[0];
+      if (!hemisResponse.data?.success) {
+        return res.status(401).json({
+          status: "error",
+          message: "Login yoki parol noto'g'ri",
+          hemisError: true,
+        });
+      }
+    } catch (hemisError) {
+      if (
+        hemisError.response?.status === 401 ||
+        hemisError.response?.status === 400
+      ) {
+        return res.status(401).json({
+          status: "error",
+          message: "Login yoki parol noto'g'ri",
+          hemisError: true,
+        });
+      }
 
-    if (!findStudent) {
-      return res.status(404).json({
+      if (
+        hemisError.code === "ECONNABORTED" ||
+        hemisError.code === "ETIMEDOUT"
+      ) {
+        return res.status(503).json({
+          status: "error",
+          message: "HEMIS serveriga ulanib bo'lmadi. Keyinroq urinib ko'ring",
+          hemisTimeout: true,
+        });
+      }
+
+      return res.status(500).json({
         status: "error",
-        message: "Student topilmadi (DEV MODE)",
+        message: "HEMIS tizimida xatolik. Keyinroq urinib ko'ring",
+        hemisServiceError: true,
       });
     }
 
-    // Appartment tekshirish
-    const apartment = await AppartmentModel.findOne({
-      studentId: findStudent._id,
-    }).lean();
+    const hemisToken = hemisResponse.data?.data?.token;
+    if (!hemisToken) {
+      return res.status(500).json({
+        status: "error",
+        message: "HEMIS dan token olinmadi",
+      });
+    }
 
-    // Token generatsiya
+    let hemisData;
+    try {
+      const studentInfo = await axios.get(
+        `${HEMIS_API_URL}/account/me`,
+        {
+          timeout: 10000,
+          headers: {
+            Authorization: `Bearer ${hemisToken}`,
+            Accept: "application/json",
+          },
+        },
+      );
+      hemisData = studentInfo.data?.data || studentInfo.data;
+    } catch (infoError) {
+      return res.status(500).json({
+        status: "error",
+        message: "HEMIS dan student ma'lumotlarini olishda xatolik",
+      });
+    }
+
+    if (!hemisData?.student_id_number) {
+      return res.status(500).json({
+        status: "error",
+        message: "HEMIS dan student ID olinmadi",
+      });
+    }
+
+    const studentIdNumber = hemisData.student_id_number;
+    let findStudent = await StudentModel.findOne({
+      $or: [
+        { student_id_number: studentIdNumber },
+        { student_id_number: parseInt(studentIdNumber) },
+        { student_id_number: studentIdNumber.toString() },
+      ],
+    });
+
+    const updateFields = {
+      id: hemisData.id,
+      full_name: hemisData.full_name,
+      short_name: hemisData.short_name,
+      first_name: hemisData.first_name,
+      second_name: hemisData.second_name,
+      third_name: hemisData.third_name,
+      student_id_number: parseInt(studentIdNumber) || studentIdNumber,
+      image: hemisData.image,
+      birth_date: hemisData.birth_date,
+      gender: hemisData.gender,
+      university:
+        typeof hemisData.university === "string"
+          ? { name: hemisData.university }
+          : hemisData.university,
+      avg_gpa: hemisData.avg_gpa
+        ? parseFloat(hemisData.avg_gpa)
+        : undefined,
+      specialty: hemisData.specialty
+        ? { id: String(hemisData.specialty.id), code: hemisData.specialty.code, name: hemisData.specialty.name }
+        : undefined,
+      group: hemisData.group
+        ? { id: String(hemisData.group.id), name: hemisData.group.name, educationLang: hemisData.group.educationLang }
+        : undefined,
+      department: hemisData.faculty
+        ? {
+            id: String(hemisData.faculty.id),
+            name: hemisData.faculty.name,
+            code: hemisData.faculty.code,
+            structureType: hemisData.faculty.structureType,
+            localityType: hemisData.faculty.localityType,
+            parent: hemisData.faculty.parent,
+            active: hemisData.faculty.active,
+          }
+        : undefined,
+      level: hemisData.level,
+      semester: hemisData.semester
+        ? { id: String(hemisData.semester.id), code: hemisData.semester.code, name: hemisData.semester.name }
+        : undefined,
+      educationYear: hemisData.semester?.education_year
+        ? {
+            code: hemisData.semester.education_year.code,
+            name: hemisData.semester.education_year.name,
+            current: hemisData.semester.education_year.current,
+          }
+        : undefined,
+      educationForm: hemisData.educationForm,
+      educationType: hemisData.educationType,
+      paymentForm: hemisData.paymentForm,
+      studentStatus: hemisData.studentStatus,
+      socialCategory: hemisData.socialCategory,
+      accommodation: hemisData.accommodation,
+      country: hemisData.country,
+      province: hemisData.province,
+      district: hemisData.district,
+      hash: hemisData.hash,
+      validateUrl: hemisData.validateUrl,
+      updated_at: Date.now(),
+    };
+
+    if (findStudent) {
+      findStudent = await StudentModel.findByIdAndUpdate(
+        findStudent._id,
+        { $set: updateFields },
+        { new: true },
+      ).lean();
+    } else {
+      findStudent = await StudentModel.create({
+        ...updateFields,
+        created_at: Date.now(),
+      });
+      findStudent = findStudent.toObject();
+    }
+
+    // Guruhni Group modeliga saqlash
+    if (hemisData.group && hemisData.group.id) {
+      try {
+        await GroupModel.updateOne(
+          { id: String(hemisData.group.id) },
+          {
+            $set: {
+              id: String(hemisData.group.id),
+              name: hemisData.group.name,
+              educationLang: hemisData.group.educationLang,
+              facultyName: hemisData.faculty?.name || null,
+              facultyCode: hemisData.faculty?.code || null,
+            },
+          },
+          { upsert: true }
+        );
+      } catch (groupError) {
+        console.error("Group upsert error:", groupError.message);
+      }
+    }
+
+    let existAppartment = false;
+    try {
+      const apartment = await AppartmentModel.findOne({
+        studentId: findStudent._id,
+      }).lean();
+      existAppartment = !!apartment;
+    } catch (_) {}
+
     const token = generateToken(findStudent._id);
 
     return res.status(200).json({
       status: "success",
-      message: "DEV MODE - Login muvaffaqiyatli",
+      message: "Muvaffaqiyatli kirish",
       student: {
         ...findStudent,
-        existAppartment: !!apartment,
+        existAppartment,
       },
       token,
-      devMode: true,
+      hemisAuthenticated: true,
     });
   } catch (error) {
-    console.error("❌ DEV sign error:", error);
     return res.status(500).json({
       status: "error",
-      message: error.message,
+      message: "Serverda xatolik yuz berdi",
     });
   }
 });
 
-// Appartment mavjudligini tekshirish
 router.get("/student/existAppartment", authMiddleware, async (req, res) => {
   try {
     const { userId } = req.userData;
@@ -308,30 +433,6 @@ router.get("/student/existAppartment", authMiddleware, async (req, res) => {
   }
 });
 
-// Test uchun student yaratish
-router.post("/student/create-byside", async (req, res) => {
-  try {
-    console.log("🧪 Creating test student...");
-    const cleanedData = cleanStudentData(req.body);
-    const student = await StudentModel.create(cleanedData);
-
-    console.log("✅ Test student created:", student.student_id_number);
-    res.status(201).json({
-      status: "success",
-      message: "Test student yaratildi",
-      student: student,
-    });
-  } catch (error) {
-    console.error("❌ Create test student error:", error);
-    res.status(500).json({
-      status: "error",
-      message: "Test student yaratishda xatolik",
-      details: error.name === "ValidationError" ? error.errors : undefined,
-    });
-  }
-});
-
-// Student notification olish
 router.get("/student/notification/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -371,13 +472,12 @@ router.get("/student/notification/:id", authMiddleware, async (req, res) => {
   }
 });
 
-// Student profil ma'lumotlari
 router.get("/student/profile", authMiddleware, async (req, res) => {
   try {
     const { userId } = req.userData;
 
     const findStudent = await StudentModel.findById(userId).select(
-      "gender province image full_name first_name second_name student_id_number group level department"
+      "gender province image full_name first_name second_name student_id_number group level department",
     );
 
     if (!findStudent) {
@@ -415,7 +515,6 @@ router.get("/student/profile", authMiddleware, async (req, res) => {
   }
 });
 
-// Tutor profil yangilash (bu endpoint student routes da nima qilyapti?)
 router.put(
   "/tutor/profile",
   authMiddleware,
@@ -440,16 +539,14 @@ router.put(
       if (phone) updateFields.phone = phone;
       if (group) updateFields.group = JSON.parse(group);
 
-      // Fayl yuklash
       if (req.file) {
         updateFields.image = `/public/images/${req.file.filename}`;
 
-        // Eski rasmni o'chirish
         if (findTutor.image && !findTutor.image.includes("default-icon")) {
           const oldImagePath = path.join(
             __dirname,
             "../public/images",
-            findTutor.image.split("/public/images/")[1]
+            findTutor.image.split("/public/images/")[1],
           );
           if (fs.existsSync(oldImagePath)) {
             fs.unlinkSync(oldImagePath);
@@ -460,7 +557,7 @@ router.put(
       const updatedTutor = await tutorModel.findByIdAndUpdate(
         userId,
         { $set: updateFields },
-        { new: true }
+        { new: true },
       );
 
       res.status(200).json({
@@ -475,18 +572,17 @@ router.put(
         message: "Tutor profilini yangilashda xatolik",
       });
     }
-  }
+  },
 );
 
-// Student qidirish (ID bo'yicha)
-router.get("/student/find/:id", async (req, res) => {
+router.get("/student/find/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
     const findStudent = await StudentModel.find({
       student_id_number: id,
     }).select(
-      "full_name first_name second_name student_id_number group level image"
+      "full_name first_name second_name student_id_number group level image",
     );
 
     if (!findStudent.length) {
@@ -502,16 +598,13 @@ router.get("/student/find/:id", async (req, res) => {
       data: findStudent,
     });
   } catch (error) {
-    console.error("Student search error:", error);
     res.status(500).json({
       status: "error",
       message: "Student qidirishda xatolik",
-      error: error.message,
     });
   }
 });
 
-// Student ma'lumotlarini yangilash
 router.put(
   "/student/profile",
   authMiddleware,
@@ -536,16 +629,14 @@ router.put(
       if (other !== undefined) updateFields.other = other;
       updateFields.updated_at = Date.now();
 
-      // Fayl yuklash
       if (req.file) {
         updateFields.image = `/public/images/${req.file.filename}`;
 
-        // Eski rasmni o'chirish
         if (findStudent.image && !findStudent.image.includes("default-icon")) {
           const oldImagePath = path.join(
             __dirname,
             "../public/images",
-            findStudent.image.split("/public/images/")[1]
+            findStudent.image.split("/public/images/")[1],
           );
           if (fs.existsSync(oldImagePath)) {
             fs.unlinkSync(oldImagePath);
@@ -556,7 +647,7 @@ router.put(
       const updatedStudent = await StudentModel.findByIdAndUpdate(
         userId,
         { $set: updateFields },
-        { new: true, runValidators: false }
+        { new: true, runValidators: false },
       );
 
       res.status(200).json({
@@ -571,15 +662,14 @@ router.put(
         message: "Student profilini yangilashda xatolik",
       });
     }
-  }
+  },
 );
 
-// Student statistikasi (admin uchun)
 router.get("/students/stats", authMiddleware, async (req, res) => {
   try {
     const totalStudents = await StudentModel.countDocuments();
-    const studentsWithApartments = await AppartmentModel.distinct("studentId")
-      .length;
+    const studentsWithApartments =
+      await AppartmentModel.distinct("studentId").length;
 
     const genderStats = await StudentModel.aggregate([
       {
@@ -618,10 +708,10 @@ router.get("/students/stats", authMiddleware, async (req, res) => {
   }
 });
 
-router.get("/students/all", async (req, res) => {
+router.get("/students/all", authMiddleware, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 200;
+    const limit = Math.min(parseInt(req.query.limit) || 200, 500);
     const skip = (page - 1) * limit;
 
     const findAllStudents = await StudentModel.find()
@@ -636,42 +726,46 @@ router.get("/students/all", async (req, res) => {
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
+    res
+      .status(500)
+      .json({ status: "error", message: "Serverda xatolik yuz berdi" });
   }
 });
 
-router.get("/student/search/:name", async (req, res) => {
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+router.get("/student/search/:name", authMiddleware, async (req, res) => {
   try {
     const { name } = req.params;
+    const safeName = escapeRegex(name.trim());
 
-    // Limit va lean bilan optimizatsiya
     const findStudents = await StudentModel.find({
-      full_name: { $regex: name, $options: "i" },
+      full_name: { $regex: safeName, $options: "i" },
     })
       .limit(50)
       .lean();
 
     res.status(200).json({ status: "success", data: findStudents });
   } catch (error) {
-    console.error("Student search error:", error);
     res
       .status(500)
       .json({ status: "error", message: "Student qidirishda xatolik" });
   }
 });
 
-// Real-time search endpoint
-router.get("/students/search", async (req, res) => {
+router.get("/students/search", authMiddleware, async (req, res) => {
   try {
     const { q } = req.query;
 
-    if (!q || q.trim() === "") {
+    if (!q || typeof q !== "string" || q.trim() === "") {
       return res.status(200).json({ status: "success", data: [] });
     }
 
-    // lean() bilan optimizatsiya, populate olib tashlandi (nested objectlar)
+    const safeQ = escapeRegex(q.trim());
     const students = await StudentModel.find({
-      full_name: { $regex: q, $options: "i" },
+      full_name: { $regex: safeQ, $options: "i" },
     })
       .select("full_name image level group department gender")
       .limit(20)
@@ -679,12 +773,13 @@ router.get("/students/search", async (req, res) => {
 
     res.status(200).json({ status: "success", data: students });
   } catch (error) {
-    res.status(500).json({ status: "error", message: error.message });
+    res
+      .status(500)
+      .json({ status: "error", message: "Serverda xatolik yuz berdi" });
   }
 });
 
-// Get student with current apartment
-router.get("/students/:id/apartment", async (req, res) => {
+router.get("/students/:id/apartment", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -699,7 +794,6 @@ router.get("/students/:id/apartment", async (req, res) => {
         .json({ status: "error", message: "Student topilmadi" });
     }
 
-    // Find current apartment with current permission
     const currentPermission = await permissionModel
       .findOne({ status: { $ne: "finished" } })
       .sort({ createdAt: -1 });
