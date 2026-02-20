@@ -2,3 +2,4 @@
 .env
 /public
 serviceAccountKey.json
+.serviceAccountKey.json
