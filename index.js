@@ -127,7 +127,7 @@ const app = express();
 const server = createServer(app);
 
 const allowedOrigins = [
-  "https://tutorapp.kerek.uz",
+  "https://tutorapp.asadbek-durdana.uz",
   "https://admin.tutorapp.kerek.uz",
   "https://student.tutorapp.kerek.uz",
   "http://127.0.0.1:8080",

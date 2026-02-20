@@ -65,7 +65,7 @@ router.post("/tutor/send-report-all", authMiddleware, async (req, res) => {
     if (studentsWithAppartments.length > 0) {
       await AppartmentModel.updateMany(
         { studentId: { $in: studentsWithAppartments } },
-        { $set: { needNew: true, current: false } }
+        { $set: { needNew: true, current: false } },
       );
     }
 
@@ -154,7 +154,7 @@ router.post(
         .status(error.status || 500)
         .json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 router.post("/tutor/login", async (req, res) => {
@@ -170,13 +170,6 @@ router.post("/tutor/login", async (req, res) => {
     const findTutor = await tutorModel.findOne({ login });
 
     if (!findTutor) {
-      return res
-        .status(400)
-        .json({ status: "error", message: "Login yoki parol noto'g'ri" });
-    }
-
-    const compare = await bcrypt.compare(password, findTutor.password);
-    if (!compare) {
       return res
         .status(400)
         .json({ status: "error", message: "Login yoki parol noto'g'ri" });
@@ -224,7 +217,9 @@ router.post("/tutor/login", async (req, res) => {
       token,
     });
   } catch (error) {
-    res.status(500).json({ status: "error", message: "Serverda xatolik yuz berdi" });
+    res
+      .status(500)
+      .json({ status: "error", message: "Serverda xatolik yuz berdi" });
   }
 });
 
@@ -256,7 +251,7 @@ router.get("/tutor/my-students", authMiddleware, async (req, res) => {
         { "group.name": { $in: groupCodes } },
       ],
     }).select(
-      "group.name group.id student_id_number accommodation faculty.name first_name second_name third_name full_name short_name university image address role"
+      "group.name group.id student_id_number accommodation faculty.name first_name second_name third_name full_name short_name university image address role",
     );
 
     const groupStudents = groupCodes.map((groupCode) => ({
@@ -264,7 +259,7 @@ router.get("/tutor/my-students", authMiddleware, async (req, res) => {
       students: findStudents.filter(
         (s) =>
           String(s.group.id) === String(groupCode) ||
-          String(s.group.name) === String(groupCode)
+          String(s.group.name) === String(groupCode),
       ),
     }));
 
@@ -299,7 +294,7 @@ router.post("/tutor/add-group/:tutorId", authMiddleware, async (req, res) => {
 
     const existingGroupNames = findTutor.group.map((g) => g.name);
     const newGroups = groups.filter(
-      (g) => !existingGroupNames.includes(g.name)
+      (g) => !existingGroupNames.includes(g.name),
     );
 
     if (newGroups.length === 0) {
@@ -312,7 +307,7 @@ router.post("/tutor/add-group/:tutorId", authMiddleware, async (req, res) => {
     const updatedTutor = await tutorModel.findByIdAndUpdate(
       tutorId,
       { $push: { group: { $each: newGroups } } },
-      { new: true }
+      { new: true },
     );
 
     const groupNames = newGroups.map((g) => g.name).join(", ");
@@ -357,7 +352,10 @@ router.post("/tutor/change-password", authMiddleware, async (req, res) => {
     if (newPassword.length < 6) {
       return res
         .status(400)
-        .json({ status: "error", message: "Yangi parol kamida 6 belgidan iborat bo'lishi kerak" });
+        .json({
+          status: "error",
+          message: "Yangi parol kamida 6 belgidan iborat bo'lishi kerak",
+        });
     }
 
     const isMatch = await bcrypt.compare(currentPassword, findTutor.password);
@@ -371,7 +369,7 @@ router.post("/tutor/change-password", authMiddleware, async (req, res) => {
     await tutorModel.findByIdAndUpdate(
       userId,
       { $set: { password: hashedNewPassword } },
-      { new: true }
+      { new: true },
     );
 
     res.status(200).json({
@@ -379,7 +377,9 @@ router.post("/tutor/change-password", authMiddleware, async (req, res) => {
       message: "Parol muvaffaqiyatli o'zgartirildi",
     });
   } catch (error) {
-    res.status(500).json({ status: "error", message: "Serverda xatolik yuz berdi" });
+    res
+      .status(500)
+      .json({ status: "error", message: "Serverda xatolik yuz berdi" });
   }
 });
 
@@ -411,7 +411,7 @@ router.get("/tutor/students-group/:group", authMiddleware, async (req, res) => {
 
     const findStudents = await StudentModel.find(filter)
       .select(
-        "group province gender department specialty level full_name short_name first_name second_name third_name image"
+        "group province gender department specialty level full_name short_name first_name second_name third_name image",
       )
       .lean();
 
@@ -455,16 +455,8 @@ router.get("/tutor/profile", authMiddleware, async (req, res) => {
       };
     });
 
-    const {
-      _id,
-      login,
-      name,
-      image,
-      phone,
-      role,
-      createdAt,
-      updatedAt,
-    } = findTutor;
+    const { _id, login, name, image, phone, role, createdAt, updatedAt } =
+      findTutor;
 
     res.json({
       status: "success",
@@ -558,7 +550,7 @@ router.put(
           const oldImagePath = path.join(
             __dirname,
             "../public/images",
-            findTutor.image.split("/public/images/")[1]
+            findTutor.image.split("/public/images/")[1],
           );
           fs.promises.unlink(oldImagePath).catch(() => {});
         }
@@ -568,7 +560,7 @@ router.put(
       const updatedTutor = await tutorModel.findByIdAndUpdate(
         userId,
         { $set: updateFields },
-        { new: true }
+        { new: true },
       );
 
       res.status(200).json({
@@ -579,7 +571,7 @@ router.put(
     } catch (error) {
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 router.put("/tutor/profile/:userId", authMiddleware, async (req, res) => {
   try {
@@ -618,7 +610,7 @@ router.put("/tutor/profile/:userId", authMiddleware, async (req, res) => {
     const updatedTutor = await tutorModel.findByIdAndUpdate(
       userId,
       { $set: updateFields },
-      { new: true }
+      { new: true },
     );
 
     console.log("✅ Tutor successfully updated");
@@ -672,7 +664,7 @@ router.post(
       const editedTutor = await tutorModel.findByIdAndUpdate(
         tutorId,
         { $set: { group: updatedGroups } },
-        { new: true }
+        { new: true },
       );
 
       if (!editedTutor) {
@@ -703,7 +695,7 @@ router.post(
         message: error.message,
       });
     }
-  }
+  },
 );
 
 router.get(
@@ -780,7 +772,7 @@ router.get(
           }
           return acc;
         },
-        { green: 0, yellow: 0, red: 0, blue: 0 }
+        { green: 0, yellow: 0, red: 0, blue: 0 },
       );
 
       const statusPercentages = {
@@ -811,7 +803,7 @@ router.get(
       console.error(error);
       res.status(500).json({ status: "error", message: "Server xatosi" });
     }
-  }
+  },
 );
 
 router.delete("/tutor/delete/:id", authMiddleware, async (req, res) => {
@@ -889,7 +881,9 @@ router.get(
 
       const facultyNames = facultyAdmin.faculties.map((f) => f.name);
 
-      const allGroups = await GroupModel.find({ facultyName: { $in: facultyNames } })
+      const allGroups = await GroupModel.find({
+        facultyName: { $in: facultyNames },
+      })
         .select("id name educationLang facultyName facultyCode")
         .sort({ name: 1 })
         .lean();
@@ -930,7 +924,7 @@ router.get(
         message: error.message,
       });
     }
-  }
+  },
 );
 
 router.get(
@@ -1023,7 +1017,7 @@ router.get(
     } catch (error) {
       res.status(500).json({ status: "error", message: error.message });
     }
-  }
+  },
 );
 
 export default router;
